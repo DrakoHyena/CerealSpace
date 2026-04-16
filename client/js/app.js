@@ -98,7 +98,7 @@ function spawnEntity(x, y) {
 function loop() {
   // 1. Handle Spawning
   if (camera.isHolding) {
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 150; i++) {
       const worldPos = screenToWorld(camera.lastMouse.x, camera.lastMouse.y);
       spawnEntity(worldPos.x, worldPos.y);
     }

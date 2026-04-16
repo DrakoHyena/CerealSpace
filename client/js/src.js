@@ -212,9 +212,7 @@ class CerealSpace {
 
     // Morton Cutoff logic
     const keyCutoff =
-      (MORTON_LUT[(ax2 | -(ay2 >> 16)) & 0xffff] |
-        (MORTON_LUT[(ay2 | -(ay2 >> 16)) & 0xffff] << 1)) >>>
-      0;
+      (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
 
     const maxItrs = 2046;
     const startBlock = aBlockIdx + 1;
@@ -261,10 +259,11 @@ class CerealSpace {
 }
 
 function movement(entity) {
+  if (entity.vx === 0 && entity.vy === 0) return;
   entity.px += entity.vx;
   entity.py += entity.vy;
-  entity.vx *= 0.9;
-  entity.vy *= 0.9;
+  entity.vx *= 0.8;
+  entity.vy *= 0.8;
 }
 
 // ai slop because idc about this for now
