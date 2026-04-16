@@ -82,19 +82,27 @@ class CerealEntity {
 
 class CerealSpace {
   constructor() {
-    this.maxEntities = 0x1000000;
+    this.maxEntities = 0x100000 >> 1;
+    this.halfSizeBytes = this.maxEntities * BYTES_PER_BLOCK;
 
-    this.bufA = new ArrayBuffer(this.maxEntities * BYTES_PER_BLOCK);
-    this.dvA = new DataView(this.bufA);
-    this.u8A = new Uint8Array(this.bufA);
-    this.bufB = new ArrayBuffer(this.maxEntities * BYTES_PER_BLOCK);
-    this.dvB = new DataView(this.bufB);
-    this.u8B = new Uint8Array(this.bufB);
+    // 1 ArrayBuffer at double the size
+    this.buf = new ArrayBuffer(this.halfSizeBytes * 2);
 
+    // Full memory view to allow crossing half boundaries with copyWithin
+    this.memory = new Uint8Array(this.buf);
+
+    // Offset Views for Half A
+    this.dvA = new DataView(this.buf, 0, this.halfSizeBytes);
+    this.u8A = new Uint8Array(this.buf, 0, this.halfSizeBytes);
+    
+    // Offset Views for Half B
+    this.dvB = new DataView(this.buf, this.halfSizeBytes, this.halfSizeBytes);
+    this.u8B = new Uint8Array(this.buf, this.halfSizeBytes, this.halfSizeBytes);
+
+    // Track active state (0 for A, 1 for B)
+    this.activeBuffer = 0;
     this.dv = this.dvA;
     this.u8 = this.u8A;
-    this.radixDv = this.dvB;
-    this.radixU8 = this.u8B;
 
     this.radixCounts = new Uint32Array(0x10000);
     this.radixOffsets = new Uint32Array(0x10000);
@@ -125,6 +133,7 @@ class CerealSpace {
     const lastBlockStart = this.freeIndex - BYTES_PER_BLOCK;
 
     if (blockStart !== lastBlockStart) {
+      // copyWithin here operates strictly within the current offset view boundary
       this.u8.copyWithin(blockStart, lastBlockStart, this.freeIndex);
       this.idToDataIndex[
         this.dv.getUint32(blockStart + CERAL_HEADER_OFFSETS.id)
@@ -145,41 +154,41 @@ class CerealSpace {
       this.mortonKeys[i] = key;
       this.blockToIndex[i] = i;
     }
+    
     this._radixPass(0, this.blockToIndex, this.blockToIndexTemp);
     this._radixPass(16, this.blockToIndexTemp, this.blockToIndex);
+
+    // Calculate absolute base offsets in the master buffer
+    const activeOffset = this.activeBuffer === 0 ? 0 : this.halfSizeBytes;
+    const inactiveOffset = this.activeBuffer === 0 ? this.halfSizeBytes : 0;
+
     for (let i = 0; i < blockCount; i++) {
       const oldEntityIndex = this.blockToIndex[i] * BYTES_PER_BLOCK;
       const newEntityIndex = i * BYTES_PER_BLOCK;
-      let j = 0;
-      for (; j <= BYTES_PER_BLOCK - 4; j += 4) {
-        this.radixDv.setUint32(
-          newEntityIndex + j,
-          this.dv.getUint32(oldEntityIndex + j),
-        );
-      }
-      for (; j < BYTES_PER_BLOCK; j++) {
-        this.radixDv.setUint8(
-          newEntityIndex + j,
-          this.dv.getUint8(oldEntityIndex + j),
-        );
-      }
+
+      // Swap out the manual block transfer loop for a fast copyWithin
+      this.memory.copyWithin(
+        inactiveOffset + newEntityIndex,
+        activeOffset + oldEntityIndex,
+        activeOffset + oldEntityIndex + BYTES_PER_BLOCK
+      );
+
       this.idToDataIndex[
         this.dv.getUint32(oldEntityIndex + CERAL_HEADER_OFFSETS.id)
       ] = newEntityIndex + BYTES_PER_HEADER;
     }
 
-    const swapU8 = this.u8;
-    const swapDv = this.dv;
-    this.u8 = this.radixU8;
-    this.dv = this.radixDv;
-    this.radixU8 = swapU8;
-    this.radixDv = swapDv;
+    // Toggle active buffer state and assign the correct bounded views
+    this.activeBuffer = this.activeBuffer === 0 ? 1 : 0;
+    this.dv = this.activeBuffer === 0 ? this.dvA : this.dvB;
+    this.u8 = this.activeBuffer === 0 ? this.u8A : this.u8B;
   }
+
   _radixPass(bitShift, srcIndices, destIndices) {
     const blockCount = this.freeIndex / BYTES_PER_BLOCK;
     const counts = this.radixCounts;
     const offsets = this.radixOffsets;
-    const keys = this.mortonKeys; // Local reference is faster
+    const keys = this.mortonKeys; 
 
     counts.fill(0);
     for (let i = 0; i < blockCount; i++) {
@@ -198,10 +207,10 @@ class CerealSpace {
       destIndices[offsets[digit]++] = val;
     }
   }
+
   getCollisions(entity, callback) {
     const aBlockIdx = (entity.index - BYTES_PER_HEADER) / BYTES_PER_BLOCK;
 
-    // Cache frequently used values
     const dv = this.dv;
     const aDataOffset = entity.index;
 
@@ -210,7 +219,6 @@ class CerealSpace {
     const ax2 = ax1 + dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.w);
     const ay2 = ay1 + dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.h);
 
-    // Morton Cutoff logic
     const keyCutoff =
       (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
 
@@ -266,41 +274,35 @@ function movement(entity) {
   entity.vy *= 0.8;
 }
 
-// ai slop because idc about this for now
 function collide(a, b) {
-  // 1. Calculate Distances & Overlap
   const dx = a.px + a.w / 2 - (b.px + b.w / 2);
   const dy = a.py + a.h / 2 - (b.py + b.h / 2);
 
   const ox = (a.w + b.w) / 2 - Math.abs(dx);
-  if (ox <= 0) return; // Early exit X
+  if (ox <= 0) return; 
 
   const oy = (a.h + b.h) / 2 - Math.abs(dy);
-  if (oy <= 0) return; // Early exit Y
+  if (oy <= 0) return; 
 
-  // 2. Calculate simple mass ratio (Area)
   const m1 = a.w * a.h;
   const m2 = b.w * b.h;
   const r1 = m2 / (m1 + m2);
   const r2 = 1 - r1;
 
-  // 3. Resolve on the shallowest axis
   if (ox < oy) {
-    const dir = Math.sign(dx) || (Math.random() < 0.5 ? 1 : -1);
+    const dir = Math.sign(dx);
 
-    // Stochastic Rounding applied to cleanly cast to Int without drift bias
-    a.px += Math.floor(ox * r1 * dir + Math.random());
-    b.px -= Math.floor(ox * r2 * dir + Math.random());
-    a.vx += Math.floor(r1 * dir * 2 + Math.random()); // Impulse
-    b.vx -= Math.floor(r2 * dir * 2 + Math.random());
+    a.px += Math.floor(ox * r1 * dir);
+    b.px -= Math.floor(ox * r2 * dir);
+    a.vx += Math.floor(r1 * dir); 
+    b.vx -= Math.floor(r2 * dir);
   } else {
-    const dir = Math.sign(dy) || (Math.random() < 0.5 ? 1 : -1);
+    const dir = Math.sign(dy);
 
-    // Stochastic Rounding applied to cleanly cast to Int without drift bias
-    a.py += Math.floor(oy * r1 * dir + Math.random());
-    b.py -= Math.floor(oy * r2 * dir + Math.random());
-    a.vy += Math.floor(r1 * dir * 2 + Math.random()); // Impulse
-    b.vy -= Math.floor(r2 * dir * 2 + Math.random());
+    a.py += Math.floor(oy * r1 * dir);
+    b.py -= Math.floor(oy * r2 * dir);
+    a.vy += Math.floor(r1 * dir); 
+    b.vy -= Math.floor(r2 * dir);
   }
 }
 

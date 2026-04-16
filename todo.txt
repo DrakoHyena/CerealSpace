@@ -1,0 +1,5 @@
+- Clean up single array approach
+  - mortons in headers? slower but more consistant?
+- Querying
+- Networking (shareddarray for now..)
+  - Views

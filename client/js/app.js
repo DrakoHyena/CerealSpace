@@ -90,15 +90,15 @@ function spawnEntity(x, y) {
   // Use the dynamic spawnSize
   entity.w = spawnSize;
   entity.h = spawnSize;
-  entity.vx = (50 - 100 * Math.random()) * spawnSize;
-  entity.vy = (50 - 100 * Math.random()) * spawnSize;
+  entity.vx = (5 - 10 * Math.random()) * spawnSize;
+  entity.vy = (5 - 10 * Math.random()) * spawnSize;
 }
 
 // --- Main Loop ---
 function loop() {
   // 1. Handle Spawning
   if (camera.isHolding) {
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 10; i++) {
       const worldPos = screenToWorld(camera.lastMouse.x, camera.lastMouse.y);
       spawnEntity(worldPos.x, worldPos.y);
     }
