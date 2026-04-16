@@ -9,10 +9,9 @@ const CERAL_ENTITY_OFFSETS = {
 const BYTES_PER_ENTITY = 16;
 
 const CERAL_HEADER_OFFSETS = {
-  sortKey: 0, // 4
-  id: 4, // 4
+  id: 0,
 };
-const BYTES_PER_HEADER = 8;
+const BYTES_PER_HEADER = 4;
 const BYTES_PER_BLOCK = BYTES_PER_ENTITY + BYTES_PER_HEADER;
 
 const MORTON_LUT = new Uint32Array(65536);
@@ -28,8 +27,7 @@ for (let i = 0; i < 65536; i++) {
 class CerealEntity {
   constructor(cerealSpace, index) {
     this.cs = cerealSpace;
-    this.dv = cerealSpace.dv;
-    this.id = this.dv.getUint32(
+    this.id = this.cs.dv.getUint32(
       index - BYTES_PER_HEADER + CERAL_HEADER_OFFSETS.id,
     );
     this.index = index;
@@ -40,64 +38,74 @@ class CerealEntity {
   }
 
   get px() {
-    return this.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.px);
+    return this.cs.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.px);
   }
   set px(v) {
-    this.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.px, v);
+    this.cs.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.px, v);
   }
 
   get py() {
-    return this.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.py);
+    return this.cs.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.py);
   }
   set py(v) {
-    this.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.py, v);
+    this.cs.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.py, v);
   }
 
   get vx() {
-    return this.dv.getInt32(this.index + CERAL_ENTITY_OFFSETS.vx);
+    return this.cs.dv.getInt32(this.index + CERAL_ENTITY_OFFSETS.vx);
   }
   set vx(v) {
-    this.dv.setInt32(this.index + CERAL_ENTITY_OFFSETS.vx, v);
+    this.cs.dv.setInt32(this.index + CERAL_ENTITY_OFFSETS.vx, v);
   }
 
   get vy() {
-    return this.dv.getInt32(this.index + CERAL_ENTITY_OFFSETS.vy);
+    return this.cs.dv.getInt32(this.index + CERAL_ENTITY_OFFSETS.vy);
   }
   set vy(v) {
-    this.dv.setInt32(this.index + CERAL_ENTITY_OFFSETS.vy, v);
+    this.cs.dv.setInt32(this.index + CERAL_ENTITY_OFFSETS.vy, v);
   }
 
   get w() {
-    return this.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.w);
+    return this.cs.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.w);
   }
   set w(v) {
-    this.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.w, v);
+    this.cs.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.w, v);
   }
 
   get h() {
-    return this.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.h);
+    return this.cs.dv.getUint16(this.index + CERAL_ENTITY_OFFSETS.h);
   }
   set h(v) {
-    this.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.h, v);
+    this.cs.dv.setUint16(this.index + CERAL_ENTITY_OFFSETS.h, v);
   }
 }
 
 class CerealSpace {
   constructor() {
-    this.buf = new ArrayBuffer(0x1000000); // 16MB
-    this.dv = new DataView(this.buf);
-    this.u8 = new Uint8Array(this.buf);
+    this.maxEntities = 0x1000000;
 
-    this.radixBuf = new ArrayBuffer(0x1000000);
-    this.radixDv = new DataView(this.radixBuf);
-    this.radixU8 = new Uint8Array(this.radixBuf);
+    this.bufA = new ArrayBuffer(this.maxEntities * BYTES_PER_BLOCK);
+    this.dvA = new DataView(this.bufA);
+    this.u8A = new Uint8Array(this.bufA);
+    this.bufB = new ArrayBuffer(this.maxEntities * BYTES_PER_BLOCK);
+    this.dvB = new DataView(this.bufB);
+    this.u8B = new Uint8Array(this.bufB);
+
+    this.dv = this.dvA;
+    this.u8 = this.u8A;
+    this.radixDv = this.dvB;
+    this.radixU8 = this.u8B;
 
     this.radixCounts = new Uint32Array(0x10000);
     this.radixOffsets = new Uint32Array(0x10000);
 
+    this.mortonKeys = new Uint32Array(this.maxEntities);
+    this.blockToIndex = new Uint32Array(this.maxEntities);
+    this.blockToIndexTemp = new Uint32Array(this.maxEntities);
+
     this.freeIndex = 0;
     this.nextEntryId = 1;
-    this.idToDataIndex = new Uint32Array(0x1000000 >> 4);
+    this.idToDataIndex = new Uint32Array(this.maxEntities);
 
     this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
@@ -123,124 +131,112 @@ class CerealSpace {
       ] = blockStart + BYTES_PER_HEADER;
     }
 
-    // Shrink the active world size
     this.freeIndex -= BYTES_PER_BLOCK;
   }
 
   sort() {
     if (this.freeIndex <= BYTES_PER_BLOCK * 2) return;
-    // Pass 1: Lower 16 bits (px)
-    this._radixPass(
-      0,
-      this.u8,
-      this.dv,
-      this.radixU8,
-      this.radixDv,
-      true,
-      false,
-    );
-    // Pass 2: Upper 16 bits (py)
-    this._radixPass(
-      16,
-      this.radixU8,
-      this.radixDv,
-      this.u8,
-      this.dv,
-      false,
-      true,
-    );
-  }
-
-  _radixPass(bitShift, srcU8, srcDv, destU8, destDv, setKey, updateIds) {
-    this.radixCounts.fill(0);
-
-    for (let i = 0; i < this.freeIndex; i += BYTES_PER_BLOCK) {
-      let key;
-      if (setKey) {
-        const dataIndex = i + BYTES_PER_HEADER;
-        const px = srcDv.getUint16(dataIndex + CERAL_ENTITY_OFFSETS.px);
-        const py = srcDv.getUint16(dataIndex + CERAL_ENTITY_OFFSETS.py);
-        key = (MORTON_LUT[px] | (MORTON_LUT[py] << 1)) >>> 0;
-        srcDv.setUint32(i + CERAL_HEADER_OFFSETS.sortKey, key);
-      } else {
-        key = srcDv.getUint32(i + CERAL_HEADER_OFFSETS.sortKey);
+    const blockCount = this.freeIndex / BYTES_PER_BLOCK;
+    for (let i = 0; i < blockCount; i++) {
+      const dataIndex = i * BYTES_PER_BLOCK + BYTES_PER_HEADER;
+      const px = this.dv.getUint16(dataIndex + CERAL_ENTITY_OFFSETS.px);
+      const py = this.dv.getUint16(dataIndex + CERAL_ENTITY_OFFSETS.py);
+      const key = (MORTON_LUT[px] | (MORTON_LUT[py] << 1)) >>> 0;
+      this.mortonKeys[i] = key;
+      this.blockToIndex[i] = i;
+    }
+    this._radixPass(0, this.blockToIndex, this.blockToIndexTemp);
+    this._radixPass(16, this.blockToIndexTemp, this.blockToIndex);
+    for (let i = 0; i < blockCount; i++) {
+      const oldEntityIndex = this.blockToIndex[i] * BYTES_PER_BLOCK;
+      const newEntityIndex = i * BYTES_PER_BLOCK;
+      let j = 0;
+      for (; j <= BYTES_PER_BLOCK - 4; j += 4) {
+        this.radixDv.setUint32(
+          newEntityIndex + j,
+          this.dv.getUint32(oldEntityIndex + j),
+        );
       }
+      for (; j < BYTES_PER_BLOCK; j++) {
+        this.radixDv.setUint8(
+          newEntityIndex + j,
+          this.dv.getUint8(oldEntityIndex + j),
+        );
+      }
+      this.idToDataIndex[
+        this.dv.getUint32(oldEntityIndex + CERAL_HEADER_OFFSETS.id)
+      ] = newEntityIndex + BYTES_PER_HEADER;
+    }
 
-      const digit = (key >>> bitShift) & 0xffff;
-      this.radixCounts[digit]++;
+    const swapU8 = this.u8;
+    const swapDv = this.dv;
+    this.u8 = this.radixU8;
+    this.dv = this.radixDv;
+    this.radixU8 = swapU8;
+    this.radixDv = swapDv;
+  }
+  _radixPass(bitShift, srcIndices, destIndices) {
+    const blockCount = this.freeIndex / BYTES_PER_BLOCK;
+    const counts = this.radixCounts;
+    const offsets = this.radixOffsets;
+    const keys = this.mortonKeys; // Local reference is faster
+
+    counts.fill(0);
+    for (let i = 0; i < blockCount; i++) {
+      counts[(keys[srcIndices[i]] >>> bitShift) & 0xffff]++;
     }
 
     let totalOffset = 0;
     for (let i = 0; i < 0x10000; i++) {
-      this.radixOffsets[i] = totalOffset;
-      totalOffset += this.radixCounts[i] * BYTES_PER_BLOCK;
+      offsets[i] = totalOffset;
+      totalOffset += counts[i];
     }
 
-    for (let i = 0; i < this.freeIndex; i += BYTES_PER_BLOCK) {
-      const key = srcDv.getUint32(i + CERAL_HEADER_OFFSETS.sortKey);
-      const digit = (key >>> bitShift) & 0xffff;
-      const destIndex = this.radixOffsets[digit];
-
-      let k = 0;
-      for (; k <= BYTES_PER_BLOCK - 4; k += 4) {
-        destDv.setUint32(destIndex + k, srcDv.getUint32(i + k));
-      }
-      for (; k < BYTES_PER_BLOCK; k++) {
-        destU8[destIndex + k] = srcU8[i + k];
-      }
-
-      if (updateIds) {
-        const id = srcDv.getUint32(i + CERAL_HEADER_OFFSETS.id);
-        this.idToDataIndex[id] = destIndex + BYTES_PER_HEADER;
-      }
-
-      this.radixOffsets[digit] += BYTES_PER_BLOCK;
+    for (let i = 0; i < blockCount; i++) {
+      const val = srcIndices[i];
+      const digit = (keys[val] >>> bitShift) & 0xffff;
+      destIndices[offsets[digit]++] = val;
     }
   }
   getCollisions(entity, callback) {
-    const aIndex = entity.index - BYTES_PER_HEADER;
+    const aBlockIdx = (entity.index - BYTES_PER_HEADER) / BYTES_PER_BLOCK;
 
-    const ax1 = this.dv.getUint16(
-      aIndex + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.px,
-    );
-    const ay1 = this.dv.getUint16(
-      aIndex + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.py,
-    );
-    const ax2 =
-      ax1 +
-      this.dv.getUint16(aIndex + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.w);
-    const ay2 =
-      ay1 +
-      this.dv.getUint16(aIndex + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.h);
+    // Cache frequently used values
+    const dv = this.dv;
+    const aDataOffset = entity.index;
 
-    // Foward search
-    const maxItrs = 2048;
-    const end = Math.min(this.freeIndex, aIndex + maxItrs * BYTES_PER_BLOCK);
+    const ax1 = dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.px);
+    const ay1 = dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.py);
+    const ax2 = ax1 + dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.w);
+    const ay2 = ay1 + dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.h);
 
+    // Morton Cutoff logic
     const keyCutoff =
       (MORTON_LUT[(ax2 | -(ay2 >> 16)) & 0xffff] |
         (MORTON_LUT[(ay2 | -(ay2 >> 16)) & 0xffff] << 1)) >>>
       0;
-    for (let i = aIndex + BYTES_PER_BLOCK; i < end; i += BYTES_PER_BLOCK) {
-      const bKey = this.dv.getUint32(i + CERAL_HEADER_OFFSETS.sortKey);
+
+    const maxItrs = 2046;
+    const startBlock = aBlockIdx + 1;
+    const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
+    const endBlock = Math.min(totalBlocks, startBlock + maxItrs);
+
+    for (let b = startBlock; b < endBlock; b++) {
+      const bKey = this.mortonKeys[b];
       if (bKey > keyCutoff) break;
 
-      // Collision check
-      const bx1 = this.dv.getUint16(
-        i + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.px,
-      );
-      const by1 = this.dv.getUint16(
-        i + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.py,
-      );
-      const bx2 =
-        bx1 + this.dv.getUint16(i + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.w);
-      const by2 =
-        by1 + this.dv.getUint16(i + BYTES_PER_HEADER + CERAL_ENTITY_OFFSETS.h);
+      const bBlockOffset = b * BYTES_PER_BLOCK;
+      const bDataOffset = bBlockOffset + BYTES_PER_HEADER;
+
+      const bx1 = dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.px);
+      const by1 = dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.py);
+      const bx2 = bx1 + dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.w);
+      const by2 = by1 + dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.h);
 
       if (ax1 < bx2 && ax2 > bx1 && ay1 < by2 && ay2 > by1) {
-        this._collisionEntity.index = i + BYTES_PER_HEADER;
-        this._collisionEntity.id = this.dv.getUint32(
-          i + CERAL_HEADER_OFFSETS.id,
+        this._collisionEntity.index = bDataOffset;
+        this._collisionEntity.id = dv.getUint32(
+          bBlockOffset + CERAL_HEADER_OFFSETS.id,
         );
         callback(entity, this._collisionEntity);
       }
