@@ -83,48 +83,55 @@ class CerealEntity {
 class CerealSpace {
   constructor() {
     this.maxEntities = 0x100000 >> 1;
-    this.halfSizeBytes = this.maxEntities * BYTES_PER_BLOCK;
+    this.maxEntitiesBytes = this.maxEntities * BYTES_PER_BLOCK;
 
-    // 1 ArrayBuffer at double the size
-    this.buf = new ArrayBuffer(this.halfSizeBytes * 2);
-
-    // Full memory view to allow crossing half boundaries with copyWithin
+    this.buf = new ArrayBuffer(this.maxEntitiesBytes * 2);
     this.memory = new Uint8Array(this.buf);
 
-    // Offset Views for Half A
-    this.dvA = new DataView(this.buf, 0, this.halfSizeBytes);
-    this.u8A = new Uint8Array(this.buf, 0, this.halfSizeBytes);
-    
-    // Offset Views for Half B
-    this.dvB = new DataView(this.buf, this.halfSizeBytes, this.halfSizeBytes);
-    this.u8B = new Uint8Array(this.buf, this.halfSizeBytes, this.halfSizeBytes);
+    this.dvA = new DataView(this.buf, 0, this.maxEntitiesBytes);
+    this.u8A = new Uint8Array(this.buf, 0, this.maxEntitiesBytes);
+    this.dvB = new DataView(
+      this.buf,
+      this.maxEntitiesBytes,
+      this.maxEntitiesBytes,
+    );
+    this.u8B = new Uint8Array(
+      this.buf,
+      this.maxEntitiesBytes,
+      this.maxEntitiesBytes,
+    );
 
-    // Track active state (0 for A, 1 for B)
     this.activeBuffer = 0;
     this.dv = this.dvA;
     this.u8 = this.u8A;
 
-    this.radixCounts = new Uint32Array(0x10000);
-    this.radixOffsets = new Uint32Array(0x10000);
+    this.radixCounts0 = new Uint32Array(0x10000);
+    this.radixCounts1 = new Uint32Array(0x10000);
+    this.radixOffsets0 = new Uint32Array(0x10000);
+    this.radixOffsets1 = new Uint32Array(0x10000);
 
     this.mortonKeys = new Uint32Array(this.maxEntities);
     this.blockToIndex = new Uint32Array(this.maxEntities);
     this.blockToIndexTemp = new Uint32Array(this.maxEntities);
 
     this.freeIndex = 0;
-    this.nextEntryId = 1;
+    this.nextEntityId = 1;
     this.idToDataIndex = new Uint32Array(this.maxEntities);
 
     this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
+    this._queryEntity = new CerealEntity(this, BYTES_PER_HEADER);
   }
 
   addEntity() {
     const blockStart = this.freeIndex;
-    this.dv.setUint32(blockStart + CERAL_HEADER_OFFSETS.id, this.nextEntryId++);
+    this.dv.setUint32(
+      blockStart + CERAL_HEADER_OFFSETS.id,
+      this.nextEntityId++,
+    );
     this.freeIndex += BYTES_PER_BLOCK;
     const dataIndex = blockStart + BYTES_PER_HEADER;
-    this.idToDataIndex[this.nextEntryId - 1] = dataIndex;
+    this.idToDataIndex[this.nextEntityId - 1] = dataIndex;
     return dataIndex;
   }
 
@@ -133,7 +140,6 @@ class CerealSpace {
     const lastBlockStart = this.freeIndex - BYTES_PER_BLOCK;
 
     if (blockStart !== lastBlockStart) {
-      // copyWithin here operates strictly within the current offset view boundary
       this.u8.copyWithin(blockStart, lastBlockStart, this.freeIndex);
       this.idToDataIndex[
         this.dv.getUint32(blockStart + CERAL_HEADER_OFFSETS.id)
@@ -146,31 +152,67 @@ class CerealSpace {
   sort() {
     if (this.freeIndex <= BYTES_PER_BLOCK * 2) return;
     const blockCount = this.freeIndex / BYTES_PER_BLOCK;
+
+    const keys = this.mortonKeys;
+    const indicesSrc = this.blockToIndex;
+    const indicesTemp = this.blockToIndexTemp;
+
+    const counts0 = this.radixCounts0;
+    const counts1 = this.radixCounts1;
+    counts0.fill(0);
+    counts1.fill(0);
+
+    // get keys, indices, and counts
     for (let i = 0; i < blockCount; i++) {
       const dataIndex = i * BYTES_PER_BLOCK + BYTES_PER_HEADER;
       const px = this.dv.getUint16(dataIndex + CERAL_ENTITY_OFFSETS.px);
       const py = this.dv.getUint16(dataIndex + CERAL_ENTITY_OFFSETS.py);
-      const key = (MORTON_LUT[px] | (MORTON_LUT[py] << 1)) >>> 0;
-      this.mortonKeys[i] = key;
-      this.blockToIndex[i] = i;
-    }
-    
-    this._radixPass(0, this.blockToIndex, this.blockToIndexTemp);
-    this._radixPass(16, this.blockToIndexTemp, this.blockToIndex);
 
-    // Calculate absolute base offsets in the master buffer
-    const activeOffset = this.activeBuffer === 0 ? 0 : this.halfSizeBytes;
-    const inactiveOffset = this.activeBuffer === 0 ? this.halfSizeBytes : 0;
+      const key = (MORTON_LUT[px] | (MORTON_LUT[py] << 1)) >>> 0;
+      keys[i] = key;
+      indicesSrc[i] = i;
+
+      counts0[key & 0xffff]++;
+      counts1[(key >>> 16) & 0xffff]++;
+    }
+
+    // calculate offsets
+    const offsets0 = this.radixOffsets0;
+    const offsets1 = this.radixOffsets1;
+    let total0 = 0;
+    let total1 = 0;
+    for (let i = 0; i < 0x10000; i++) {
+      offsets0[i] = total0;
+      total0 += counts0[i];
+
+      offsets1[i] = total1;
+      total1 += counts1[i];
+    }
+
+    // sort first u16
+    for (let i = 0; i < blockCount; i++) {
+      const val = indicesSrc[i];
+      const digit = keys[val] & 0xffff;
+      indicesTemp[offsets0[digit]++] = val;
+    }
+
+    // sort second u16 and copy over
+    const activeOffset = this.activeBuffer === 0 ? 0 : this.maxEntitiesBytes;
+    const inactiveOffset = this.activeBuffer === 0 ? this.maxEntitiesBytes : 0;
 
     for (let i = 0; i < blockCount; i++) {
-      const oldEntityIndex = this.blockToIndex[i] * BYTES_PER_BLOCK;
-      const newEntityIndex = i * BYTES_PER_BLOCK;
+      const val = indicesTemp[i];
+      const digit = (keys[val] >>> 16) & 0xffff;
 
-      // Swap out the manual block transfer loop for a fast copyWithin
+      const sortedRank = offsets1[digit]++;
+
+      const oldEntityIndex = val * BYTES_PER_BLOCK;
+      const newEntityIndex = sortedRank * BYTES_PER_BLOCK;
+
       this.memory.copyWithin(
         inactiveOffset + newEntityIndex,
         activeOffset + oldEntityIndex,
-        activeOffset + oldEntityIndex + BYTES_PER_BLOCK
+        activeOffset + oldEntityIndex + BYTES_PER_BLOCK,
       );
 
       this.idToDataIndex[
@@ -178,33 +220,62 @@ class CerealSpace {
       ] = newEntityIndex + BYTES_PER_HEADER;
     }
 
-    // Toggle active buffer state and assign the correct bounded views
     this.activeBuffer = this.activeBuffer === 0 ? 1 : 0;
     this.dv = this.activeBuffer === 0 ? this.dvA : this.dvB;
     this.u8 = this.activeBuffer === 0 ? this.u8A : this.u8B;
   }
 
-  _radixPass(bitShift, srcIndices, destIndices) {
-    const blockCount = this.freeIndex / BYTES_PER_BLOCK;
-    const counts = this.radixCounts;
-    const offsets = this.radixOffsets;
-    const keys = this.mortonKeys; 
+  query(x1, y1, x2, y2, callback) {
+    if (this.freeIndex === 0) return;
 
-    counts.fill(0);
-    for (let i = 0; i < blockCount; i++) {
-      counts[(keys[srcIndices[i]] >>> bitShift) & 0xffff]++;
+    x1 = x1 < 0 ? 0 : x1 > 65535 ? 65535 : x1;
+    y1 = y1 < 0 ? 0 : y1 > 65535 ? 65535 : y1;
+    x2 = x2 < 0 ? 0 : x2 > 65535 ? 65535 : x2;
+    y2 = y2 < 0 ? 0 : y2 > 65535 ? 65535 : y2;
+
+    const kMin =
+      (MORTON_LUT[x1 & 0xffff] | (MORTON_LUT[y1 & 0xffff] << 1)) >>> 0;
+    const kMax =
+      (MORTON_LUT[x2 & 0xffff] | (MORTON_LUT[y2 & 0xffff] << 1)) >>> 0;
+
+    const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
+
+    // Find starting block
+    let startBlock = totalBlocks;
+    let low = 0;
+    let high = totalBlocks - 1;
+    while (low <= high) {
+      const mid = (low + high) >>> 1;
+      if (this.mortonKeys[mid] >= kMin) {
+        startBlock = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
     }
 
-    let totalOffset = 0;
-    for (let i = 0; i < 0x10000; i++) {
-      offsets[i] = totalOffset;
-      totalOffset += counts[i];
-    }
+    for (let b = startBlock; b < totalBlocks; b++) {
+      const bKey = this.mortonKeys[b];
+      if (bKey > kMax) break;
 
-    for (let i = 0; i < blockCount; i++) {
-      const val = srcIndices[i];
-      const digit = (keys[val] >>> bitShift) & 0xffff;
-      destIndices[offsets[digit]++] = val;
+      const bBlockOffset = b * BYTES_PER_BLOCK;
+      const bDataOffset = bBlockOffset + BYTES_PER_HEADER;
+
+      const bx1 = this.dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.px);
+      const by1 = this.dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.py);
+      const bx2 = bx1 + this.dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.w);
+      const by2 = by1 + this.dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.h);
+
+      if (x1 < bx2 && x2 > bx1 && y1 < by2 && y2 > by1) {
+        this._queryEntity.index = bDataOffset;
+        this._queryEntity.id = this.dv.getUint32(
+          bBlockOffset + CERAL_HEADER_OFFSETS.id,
+        );
+
+        if (callback(this._queryEntity)) {
+          return;
+        }
+      }
     }
   }
 
@@ -222,7 +293,7 @@ class CerealSpace {
     const keyCutoff =
       (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
 
-    const maxItrs = 2046;
+    const maxItrs = 1024;
     const startBlock = aBlockIdx + 1;
     const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
     const endBlock = Math.min(totalBlocks, startBlock + maxItrs);
@@ -273,36 +344,38 @@ function movement(entity) {
   entity.vx *= 0.8;
   entity.vy *= 0.8;
 }
+function collide(entityA, entityB) {
+  const widthA = entityA.w;
+  const widthB = entityB.w;
+  const posXA = entityA.px;
+  const posXB = entityB.px;
+  const deltaX = posXA + widthA * 0.5 - (posXB + widthB * 0.5);
+  const overlapX = (widthA + widthB) * 0.5 - Math.abs(deltaX);
+  if (overlapX <= 0) return;
 
-function collide(a, b) {
-  const dx = a.px + a.w / 2 - (b.px + b.w / 2);
-  const dy = a.py + a.h / 2 - (b.py + b.h / 2);
+  const heightA = entityA.h;
+  const heightB = entityB.h;
+  const posYA = entityA.py;
+  const posYB = entityB.py;
+  const deltaY = posYA + heightA * 0.5 - (posYB + heightB * 0.5);
+  const overlapY = (heightA + heightB) * 0.5 - Math.abs(deltaY);
+  if (overlapY <= 0) return;
 
-  const ox = (a.w + b.w) / 2 - Math.abs(dx);
-  if (ox <= 0) return; 
+  const entropy = entityA.id + entityB.id + entityA.index;
+  const flip = (entropy & 1) === 0;
 
-  const oy = (a.h + b.h) / 2 - Math.abs(dy);
-  if (oy <= 0) return; 
+  if (overlapX < overlapY) {
+    const dirX = deltaX !== 0 ? (deltaX > 0 ? 1 : -1) : flip ? 1 : -1;
+    const impulse = (overlapX * 0.5 + 1) * dirX;
 
-  const m1 = a.w * a.h;
-  const m2 = b.w * b.h;
-  const r1 = m2 / (m1 + m2);
-  const r2 = 1 - r1;
-
-  if (ox < oy) {
-    const dir = Math.sign(dx);
-
-    a.px += Math.floor(ox * r1 * dir);
-    b.px -= Math.floor(ox * r2 * dir);
-    a.vx += Math.floor(r1 * dir); 
-    b.vx -= Math.floor(r2 * dir);
+    entityA.vx += impulse;
+    entityB.vx -= impulse;
   } else {
-    const dir = Math.sign(dy);
+    const dirY = deltaY !== 0 ? (deltaY > 0 ? 1 : -1) : flip ? 1 : -1;
+    const impulse = (overlapY * 0.5 + 1) * dirY;
 
-    a.py += Math.floor(oy * r1 * dir);
-    b.py -= Math.floor(oy * r2 * dir);
-    a.vy += Math.floor(r1 * dir); 
-    b.vy -= Math.floor(r2 * dir);
+    entityA.vy += impulse;
+    entityB.vy -= impulse;
   }
 }
 

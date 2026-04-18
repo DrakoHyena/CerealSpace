@@ -1,8 +1,3 @@
-- Clean up single array approach
-  - mortons in headers? slower but more consistant?
-- Simplify physics
-  - Basic solution for functionallity, user should replace it
-  - reduce squished bouncing for perf
-- Querying
 - Networking (shareddarray for now..)
   - Views
+- Make an actual front-end and not ai slop
