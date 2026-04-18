@@ -1,5 +1,4 @@
-- clean up src
-  - investigate perf regres
+- Front end
 - Alchemy
 - Networking (shareddarray for now..)
   - Views
