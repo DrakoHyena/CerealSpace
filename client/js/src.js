@@ -23,6 +23,14 @@ for (let i = 0; i < 65536; i++) {
   x = (x | (x << 1)) & 0x55555555;
   MORTON_LUT[i] = x;
 }
+const DECODE_LUT = new Uint16Array(65536);
+for (let i = 0; i < 65536; i++) {
+  let res = 0;
+  for (let bit = 0; bit < 16; bit++) {
+    if (i & (1 << (bit * 2))) res |= 1 << bit;
+  }
+  DECODE_LUT[i] = res;
+}
 
 class CerealEntity {
   constructor(cerealSpace, index) {
@@ -111,6 +119,7 @@ class CerealSpace {
     this.radixOffsets1 = new Uint32Array(0x10000);
 
     this.mortonKeys = new Uint32Array(this.maxEntities);
+    this.mortonKeysTemp = new Uint32Array(this.maxEntities);
     this.blockToIndex = new Uint32Array(this.maxEntities);
     this.blockToIndexTemp = new Uint32Array(this.maxEntities);
 
@@ -154,6 +163,7 @@ class CerealSpace {
     const blockCount = this.freeIndex / BYTES_PER_BLOCK;
 
     const keys = this.mortonKeys;
+    const keysTemp = this.mortonKeysTemp;
     const indicesSrc = this.blockToIndex;
     const indicesTemp = this.blockToIndexTemp;
 
@@ -202,7 +212,8 @@ class CerealSpace {
 
     for (let i = 0; i < blockCount; i++) {
       const val = indicesTemp[i];
-      const digit = (keys[val] >>> 16) & 0xffff;
+      const key = keys[val];
+      const digit = (key >>> 16) & 0xffff;
 
       const sortedRank = offsets1[digit]++;
 
@@ -215,6 +226,8 @@ class CerealSpace {
         activeOffset + oldEntityIndex + BYTES_PER_BLOCK,
       );
 
+      keysTemp[sortedRank] = key;
+
       this.idToDataIndex[
         this.dv.getUint32(oldEntityIndex + CERAL_HEADER_OFFSETS.id)
       ] = newEntityIndex + BYTES_PER_HEADER;
@@ -223,15 +236,17 @@ class CerealSpace {
     this.activeBuffer = this.activeBuffer === 0 ? 1 : 0;
     this.dv = this.activeBuffer === 0 ? this.dvA : this.dvB;
     this.u8 = this.activeBuffer === 0 ? this.u8A : this.u8B;
+    this.mortonKeys = keysTemp;
+    this.mortonKeysTemp = keys;
   }
 
-  query(x1, y1, x2, y2, callback) {
+  query(x1, y1, x2, y2, callback, minIndex = 0) {
     if (this.freeIndex === 0) return;
 
-    x1 = x1 < 0 ? 0 : x1 > 65535 ? 65535 : x1;
-    y1 = y1 < 0 ? 0 : y1 > 65535 ? 65535 : y1;
-    x2 = x2 < 0 ? 0 : x2 > 65535 ? 65535 : x2;
-    y2 = y2 < 0 ? 0 : y2 > 65535 ? 65535 : y2;
+    x1 = x1 < 0 ? 0 : x1 > 65535 ? 65535 : x1 | 0;
+    y1 = y1 < 0 ? 0 : y1 > 65535 ? 65535 : y1 | 0;
+    x2 = x2 < 0 ? 0 : x2 > 65535 ? 65535 : x2 | 0;
+    y2 = y2 < 0 ? 0 : y2 > 65535 ? 65535 : y2 | 0;
 
     const kMin =
       (MORTON_LUT[x1 & 0xffff] | (MORTON_LUT[y1 & 0xffff] << 1)) >>> 0;
@@ -242,7 +257,7 @@ class CerealSpace {
 
     // Find starting block
     let startBlock = totalBlocks;
-    let low = 0;
+    let low = minIndex;
     let high = totalBlocks - 1;
     while (low <= high) {
       const mid = (low + high) >>> 1;
@@ -280,57 +295,60 @@ class CerealSpace {
   }
 
   getCollisions(entity, callback) {
-    const aBlockIdx = (entity.index - BYTES_PER_HEADER) / BYTES_PER_BLOCK;
+    const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
+    if (totalBlocks <= 1) return;
 
     const dv = this.dv;
-    const aDataOffset = entity.index;
+    const aDataIdx = entity.index;
+    const aBlockIdx = (aDataIdx - BYTES_PER_HEADER) / BYTES_PER_BLOCK;
 
-    const ax1 = dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.px);
-    const ay1 = dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.py);
-    const ax2 = ax1 + dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.w);
-    const ay2 = ay1 + dv.getUint16(aDataOffset + CERAL_ENTITY_OFFSETS.h);
+    const ax1 = dv.getUint16(aDataIdx + CERAL_ENTITY_OFFSETS.px);
+    const ay1 = dv.getUint16(aDataIdx + CERAL_ENTITY_OFFSETS.py);
+    const ax2 = ax1 + dv.getUint16(aDataIdx + CERAL_ENTITY_OFFSETS.w);
+    const ay2 = ay1 + dv.getUint16(aDataIdx + CERAL_ENTITY_OFFSETS.h);
 
-    const keyCutoff =
-      (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
+    const maxIters = 1024;
+    const kMax =
+      (MORTON_LUT[ax2 > 65535 ? 65535 : ax2] |
+        (MORTON_LUT[ay2 > 65535 ? 65535 : ay2] << 1)) >>>
+      0;
 
-    const maxItrs = 1024;
-    const startBlock = aBlockIdx + 1;
-    const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
-    const endBlock = Math.min(totalBlocks, startBlock + maxItrs);
-
-    for (let b = startBlock; b < endBlock; b++) {
+    for (let b = aBlockIdx + 1; b < totalBlocks; b++) {
       const bKey = this.mortonKeys[b];
-      if (bKey > keyCutoff) break;
 
-      const bBlockOffset = b * BYTES_PER_BLOCK;
-      const bDataOffset = bBlockOffset + BYTES_PER_HEADER;
+      if (bKey > kMax || b - aBlockIdx > maxIters) break;
 
-      const bx1 = dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.px);
-      const by1 = dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.py);
-      const bx2 = bx1 + dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.w);
-      const by2 = by1 + dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.h);
+      const dIdx = b * BYTES_PER_BLOCK + BYTES_PER_HEADER;
+      const bx = dv.getUint16(dIdx + CERAL_ENTITY_OFFSETS.px);
+      const by = dv.getUint16(dIdx + CERAL_ENTITY_OFFSETS.py);
+      const bw = dv.getUint16(dIdx + CERAL_ENTITY_OFFSETS.w);
+      const bh = dv.getUint16(dIdx + CERAL_ENTITY_OFFSETS.h);
 
-      if (ax1 < bx2 && ax2 > bx1 && ay1 < by2 && ay2 > by1) {
-        this._collisionEntity.index = bDataOffset;
-        this._collisionEntity.id = dv.getUint32(
-          bBlockOffset + CERAL_HEADER_OFFSETS.id,
-        );
+      if (ax1 < bx + bw && ax2 > bx && ay1 < by + bh && ay2 > by) {
+        this._collisionEntity.index = dIdx;
+        this._collisionEntity.id = dv.getUint32(dIdx - BYTES_PER_HEADER);
         callback(entity, this._collisionEntity);
       }
     }
   }
 
   loopEntities(cb) {
-    for (let i = 0; i < this.freeIndex; i += BYTES_PER_BLOCK) {
-      this._loopEntity.id = this.dv.getUint32(i + CERAL_HEADER_OFFSETS.id);
-      this._loopEntity.index = i + BYTES_PER_HEADER;
+    const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
+    for (let i = 0; i < totalBlocks; i++) {
+      this._loopEntity.id = this.dv.getUint32(
+        i * BYTES_PER_BLOCK + CERAL_HEADER_OFFSETS.id,
+      );
+      this._loopEntity.index = i * BYTES_PER_BLOCK + BYTES_PER_HEADER;
       cb(this._loopEntity);
     }
   }
 
   worldLoop() {
     this.loopEntities((entity) => {
+      // Movement
       movement(entity);
+
+      // Collision
       this.getCollisions(entity, collide);
     });
     this.sort();

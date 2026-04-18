@@ -1,3 +1,5 @@
+- clean up src
+- Alchemy
 - Networking (shareddarray for now..)
   - Views
 - Make an actual front-end and not ai slop
