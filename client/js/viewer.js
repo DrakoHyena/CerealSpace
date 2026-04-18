@@ -1,0 +1,297 @@
+export class CerealViewer {
+  constructor(canvas, cerealSpace) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.cs = cerealSpace;
+
+    // Default draw function
+    this.drawFunc = (ent) => {
+      this.ctx.fillRect(ent.px, ent.py, ent.w, ent.h);
+    };
+
+    this.camera = {
+      x: -((2 ** 16) >> 1),
+      y: -((2 ** 16) >> 1),
+      zoom: 0.5,
+      isHolding: false,
+      isDragging: false,
+      lastMouse: { x: 0, y: 0 },
+    };
+
+    this.spawnSize = 10;
+    this.spawnAmount = 10;
+    this.currentToolKey = "1";
+    this.tools = {};
+    this.repeatAmnt = 1;
+
+    this.perf = {
+      buffers: { world: [], tools: [], render: [] },
+      averages: { world: 0, tools: 0, render: 0 },
+    };
+
+    if (!this.canvas.hasAttribute("tabindex")) {
+      this.canvas.setAttribute("tabindex", "0");
+    }
+    this.canvas.style.outline = "none";
+
+    this._setupDefaultTools();
+    this._initEvents();
+    this.resize();
+    this._startLoops();
+  }
+
+  setDrawFunc(fn) {
+    this.drawFunc = fn;
+  }
+
+  setTool(key, name, callback) {
+    this.tools[key.toString()] = { name, callback };
+  }
+
+  _setupDefaultTools() {
+    for (let i = 1; i <= 7; i++) {
+      this.setTool(i, "Nothing", (pos) => {});
+    }
+
+    this.setTool("8", "Delete", (pos) => {
+      const radius = this.spawnSize * 10;
+      this.cs.query(
+        pos.x - radius,
+        pos.y - radius,
+        pos.x + radius,
+        pos.y + radius,
+        (ent) => {
+          const dx = pos.x - (ent.px + ent.w / 2);
+          const dy = pos.y - (ent.py + ent.h / 2);
+          if (dx * dx + dy * dy < radius * radius) {
+            this.cs.deleteEntity(ent.index);
+          }
+          return false;
+        },
+      );
+    });
+
+    this.setTool("9", "Push", (pos) => this._applyForce(pos, -1));
+    this.setTool("0", "Pull", (pos) => this._applyForce(pos, 1));
+  }
+
+  _applyForce(pos, direction) {
+    const radius = this.spawnSize * 10;
+    const strength = this.spawnSize;
+
+    this.cs.query(
+      pos.x - radius,
+      pos.y - radius,
+      pos.x + radius,
+      pos.y + radius,
+      (ent) => {
+        const dx = pos.x - (ent.px + ent.w / 2);
+        const dy = pos.y - (ent.py + ent.h / 2);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 0.1 * radius && dist < radius) {
+          const force = strength * (1 - dist / radius);
+          ent.vx += (dx / dist) * force * direction;
+          ent.vy += (dy / dist) * force * direction;
+        }
+        return false;
+      },
+    );
+  }
+
+  screenToWorld(sx, sy) {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = (sx - rect.left) * (this.canvas.width / rect.width);
+    const y = (sy - rect.top) * (this.canvas.height / rect.height);
+    return {
+      x: (x - this.canvas.width / 2) / this.camera.zoom - this.camera.x,
+      y: (y - this.canvas.height / 2) / this.camera.zoom - this.camera.y,
+    };
+  }
+
+  _initEvents() {
+    const c = this.canvas;
+    c.addEventListener("mousedown", (e) => {
+      if (e.button === 0) this.camera.isHolding = true;
+      if (e.button === 1 || e.button === 2) this.camera.isDragging = true;
+      this.camera.lastMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (this.camera.isDragging) {
+        this.camera.x +=
+          (e.clientX - this.camera.lastMouse.x) / this.camera.zoom;
+        this.camera.y +=
+          (e.clientY - this.camera.lastMouse.y) / this.camera.zoom;
+      }
+      this.camera.lastMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 0) this.camera.isHolding = false;
+      if (e.button === 1 || e.button === 2) this.camera.isDragging = false;
+    });
+
+    c.addEventListener("keydown", (e) => {
+      if (e.repeat) {
+        this.repeatAmnt += 1;
+      } else {
+        this.repeatAmnt = 1;
+      }
+      if (this.tools[e.key]) this.currentToolKey = e.key;
+      if (e.key === "+" || e.key === "=") this.spawnSize += this.repeatAmnt;
+      if (e.key === "-" || e.key === "_")
+        this.spawnSize = Math.max(1, this.spawnSize - this.repeatAmnt);
+      if (e.key === "]" || e.key === "}") this.spawnAmount += this.repeatAmnt;
+      if (e.key === "[" || e.key === "{")
+        this.spawnAmount = Math.max(1, this.spawnAmount - this.repeatAmnt);
+    });
+
+    c.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        const zoomSpeed = 1.1;
+        if (e.deltaY < 0) this.camera.zoom *= zoomSpeed;
+        else this.camera.zoom /= zoomSpeed;
+      },
+      { passive: false },
+    );
+
+    c.addEventListener("contextmenu", (e) => e.preventDefault());
+    window.addEventListener("resize", () => this.resize());
+  }
+
+  resize() {
+    this.canvas.width = this.canvas.clientWidth || window.innerWidth;
+    this.canvas.height = this.canvas.clientHeight || window.innerHeight;
+    this.ctx.imageSmoothingEnabled = false;
+  }
+
+  _startLoops() {
+    const tick = () => {
+      const worldPos = this.screenToWorld(
+        this.camera.lastMouse.x,
+        this.camera.lastMouse.y,
+      );
+
+      const tT0 = performance.now();
+      if (this.camera.isHolding && this.tools[this.currentToolKey]) {
+        this.tools[this.currentToolKey].callback(worldPos, this);
+      }
+      this.perf.buffers.tools.push(performance.now() - tT0);
+
+      const tW0 = performance.now();
+      this.cs.worldLoop();
+      this.perf.buffers.world.push(performance.now() - tW0);
+
+      this._render(worldPos);
+      requestAnimationFrame(tick);
+    };
+
+    setInterval(() => {
+      const avg = (arr) =>
+        arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+      this.perf.averages.world = avg(this.perf.buffers.world);
+      this.perf.averages.tools = avg(this.perf.buffers.tools);
+      this.perf.averages.render = avg(this.perf.buffers.render);
+      this.perf.buffers.world = [];
+      this.perf.buffers.tools = [];
+      this.perf.buffers.render = [];
+    }, 1000);
+
+    requestAnimationFrame(tick);
+  }
+
+  _render(worldPos) {
+    const tR0 = performance.now();
+    const { ctx, canvas, camera, cs } = this;
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(camera.x, camera.y);
+
+    ctx.fillStyle = "grey";
+
+    // User custom draw function
+    cs.loopEntities((ent) => this.drawFunc(ent));
+
+    if (this.camera.isHolding) {
+      this._drawToolIndicator(ctx, worldPos);
+    }
+
+    ctx.restore();
+    this.perf.buffers.render.push(performance.now() - tR0);
+    this._drawUI();
+  }
+
+  _drawToolIndicator(ctx, pos) {
+    let color = "white";
+    let radius = this.spawnSize;
+    if (this.currentToolKey === "8") {
+      color = "red";
+      radius *= 10;
+    } else if (this.currentToolKey === "9") {
+      color = "orange";
+      radius *= 10;
+    } else if (this.currentToolKey === "0") {
+      color = "cyan";
+      radius *= 10;
+    }
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 / this.camera.zoom;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  _drawUI() {
+    const { averages } = this.perf;
+    this.ctx.fillStyle = "rgba(0,0,0,0.7)";
+    this.ctx.fillRect(10, 10, 350, 140);
+    this.ctx.fillStyle = "white";
+    this.ctx.font = "12px monospace";
+
+    let y = 30;
+    this.ctx.fillText(
+      `Tool: ${this.currentToolKey} - ${this.tools[this.currentToolKey].name}`,
+      20,
+      y,
+    );
+    y += 20;
+    this.ctx.fillText(
+      `Size: ${this.spawnSize} | Amount: ${this.spawnAmount}`,
+      20,
+      y,
+    );
+    y += 20;
+    this.ctx.fillText(`Ents: ${this.cs.nextEntityId - 1}`, 20, y);
+    y += 25;
+
+    this.ctx.fillStyle = "#00ff00";
+    this.ctx.fillText(
+      `World: ${averages.world.toFixed(3)}ms (target: ${(33.333 - averages.render).toFixed(3)}ms)`,
+      20,
+      y,
+    );
+    y += 15;
+    this.ctx.fillText(`Tools: ${averages.tools.toFixed(3)}ms`, 20, y);
+    y += 15;
+    this.ctx.fillText(
+      `Render : ${averages.render.toFixed(3)}ms (target: ${(33.333 - averages.world).toFixed(3)}ms)`,
+      20,
+      y,
+    );
+    y += 15;
+    this.ctx.fillText(
+      `Est Slowdown: ${(((averages.world + averages.tools + averages.render) / (1000 / 30) - 1) * 100).toFixed(3)}%`,
+      20,
+      y,
+    );
+    y += 15;
+  }
+}
