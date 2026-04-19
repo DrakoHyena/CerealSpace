@@ -6,8 +6,10 @@ const CEREAL_ENTITY_OFFSETS = {
   w: 12, // 2
   h: 14, // 2
   type: 16, // 2
+  lifetime: 18, // 2
+  heat: 20, // 2
 };
-const BYTES_PER_ENTITY = 18;
+const BYTES_PER_ENTITY = 22;
 
 const CEREAL_HEADER_OFFSETS = {
   id: 0,
@@ -19,6 +21,8 @@ const ENTITY_TYPES = {
   unmovable: 0,
   water: 1,
   void: 2,
+  fire: 3,
+  steam: 4,
 };
 
 const MORTON_LUT = new Uint32Array(65536);
@@ -101,6 +105,22 @@ class CerealEntity {
   set type(v) {
     this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.type, v);
   }
+
+  get lifetime() {
+    return this.cs.dv.getUint16(this.index + CEREAL_ENTITY_OFFSETS.lifetime);
+  }
+
+  set lifetime(v) {
+    return this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.lifetime, v);
+  }
+
+  get heat() {
+    return this.cs.dv.getUint16(this.index + CEREAL_ENTITY_OFFSETS.heat);
+  }
+
+  set heat(v) {
+    return this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.heat, v);
+  }
 }
 
 class CerealSpace {
@@ -154,6 +174,7 @@ class CerealSpace {
 
   addEntity() {
     const blockStart = this.freeIndex;
+    this.u8.fill(0, blockStart, blockStart + BYTES_PER_BLOCK);
     const id = this.freeIds[this.lastFreeId--];
     this.dv.setUint32(blockStart + CEREAL_HEADER_OFFSETS.id, id);
     const dataIndex = blockStart + BYTES_PER_HEADER;
@@ -333,7 +354,7 @@ class CerealSpace {
     const keyCutoff =
       (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
 
-    const maxItrs = Infinity;
+    const maxItrs = 2048;
     const startBlock = aBlockIdx + 1;
     const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
     const endBlock = Math.min(totalBlocks, startBlock + maxItrs);
@@ -371,28 +392,51 @@ class CerealSpace {
 
   worldLoop() {
     this.loopEntities((entity) => {
-      // Movement
-      switch (entity.type) {
+      // Movement & Heat & Misc
+      const entityType = entity.type;
+      switch (entityType) {
         case ENTITY_TYPES.unmovable:
           entity.vx = 0;
           entity.vy = 0;
           break;
+
         case ENTITY_TYPES.water:
-          entity.vy += 2;
+          entity.vy += 3;
           entity.vx += (Math.random() - 0.5) * 3;
+          if (entity.heat > 100) entity.type = ENTITY_TYPES.steam;
           break;
+
+        case ENTITY_TYPES.fire:
+          entity.vy -= 4;
+          entity.vx += (Math.random() - 0.5) * 5;
+          if (entity.heat < 100) entity.lifetime = 1;
+          break;
+
+        case ENTITY_TYPES.steam:
+          entity.vy -= 2;
+          entity.vx += (Math.random() - 0.5) * 8;
+          if (entity.heat < 50) entity.type = ENTITY_TYPES.water;
+          break;
+
         case ENTITY_TYPES.void:
         default:
           break;
       }
+
       // Collision
       this.getCollisions(entity, collide);
 
-      // Movement apply
+      // Apply
       entity.px += entity.vx;
       entity.py += entity.vy;
       entity.vx *= 0.8;
       entity.vy *= 0.8;
+      entity.heat *= 0.99;
+      if (entity.lifetime > 1) {
+        entity.lifetime--;
+      } else if (entity.lifetime === 1) {
+        this.deleteEntity(entity.index);
+      }
     });
     this.sort();
   }
@@ -401,6 +445,17 @@ class CerealSpace {
 function collide(entityA, entityB, cs) {
   const typeA = entityA.type;
   const typeB = entityB.type;
+
+  // Heat transfer
+  const heatA = entityA.heat;
+  const heatB = entityB.heat;
+  if (heatA < heatB) {
+    entityB.heat *= 0.95;
+    entityA.heat += heatB * 0.05;
+  } else {
+    entityA.heat *= 0.95;
+    entityB.heat += heatA * 0.05;
+  }
 
   // void deletes
   if (typeA === ENTITY_TYPES.void) {
@@ -417,14 +472,22 @@ function collide(entityA, entityB, cs) {
 
   // unmovables hard push other things
   if (typeA === ENTITY_TYPES.unmovable) {
-    return singleCollideMove(entityA, entityB, 0.4);
+    return singleCollideMove(entityA, entityB, 0.2);
   }
   if (typeB === ENTITY_TYPES.unmovable) {
-    return singleCollideMove(entityB, entityA, 0.4);
+    return singleCollideMove(entityB, entityA, 0.2);
+  }
+
+  if (typeA === ENTITY_TYPES.steam || typeB === ENTITY_TYPES.steam) {
+    return collidePush(entityA, entityB, 0.8);
   }
 
   if (typeA === ENTITY_TYPES.water || typeB === ENTITY_TYPES.water) {
     return collidePush(entityA, entityB, 0.6);
+  }
+
+  if (typeA === ENTITY_TYPES.fire || typeB === ENTITY_TYPES.fire) {
+    return collidePush(entityA, entityB, 0.3);
   }
 }
 

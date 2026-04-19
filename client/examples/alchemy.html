@@ -22,6 +22,12 @@
                 case ENTITY_TYPES.water:
                     color = "#7777FF"
                     break;
+                case ENTITY_TYPES.fire:
+                    color = "#c47525"
+                    break;
+                case ENTITY_TYPES.steam:
+                    color = "#FFFFFF99";
+                    break;
                 case ENTITY_TYPES.void:
                     color = "#FF5555"
                     break;
@@ -46,8 +52,8 @@
             for (let i = 0; i < viewer.spawnAmount; i++) {
                 let entity = new CerealEntity(cs, cs.addEntity());
                 entity.type = ENTITY_TYPES.void
-                entity.px = pos.x + (Math.random() - 0.5) * 120;
-                entity.py = pos.y + (Math.random() - 0.5) * 120;
+                entity.px = pos.x + (Math.random() - 0.5) * viewer.spawnSize * 4;
+                entity.py = pos.y + (Math.random() - 0.5) * viewer.spawnSize * 4;
                 entity.w = viewer.spawnSize;
                 entity.h = viewer.spawnSize;
             }
@@ -59,8 +65,23 @@
                 entity.type = ENTITY_TYPES.water
                 entity.px = pos.x
                 entity.py = pos.y
-                entity.vx = (Math.random() - 0.5) * 20;
-                entity.vy = (Math.random() - 0.5) * 20;
+                entity.vx = (Math.random() - 0.5) * viewer.spawnSize * 5;
+                entity.vy = (Math.random() - 0.5) * viewer.spawnSize * 5;
+                entity.w = viewer.spawnSize;
+                entity.h = viewer.spawnSize;
+            }
+        });
+
+        viewer.setTool("4", "Conjure Fire", (pos) => {
+            for (let i = 0; i < viewer.spawnAmount; i++) {
+                let entity = new CerealEntity(cs, cs.addEntity());
+                entity.type = ENTITY_TYPES.fire
+                entity.lifetime = 100;
+                entity.heat = 2000;
+                entity.px = pos.x
+                entity.py = pos.y
+                entity.vx = (Math.random() - 0.5) * viewer.spawnSize * 5;
+                // entity.vy = (Math.random() - 0.5) * 5;
                 entity.w = viewer.spawnSize;
                 entity.h = viewer.spawnSize;
             }
