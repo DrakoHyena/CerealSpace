@@ -5,14 +5,21 @@ const CEREAL_ENTITY_OFFSETS = {
   vy: 8, // 4
   w: 12, // 2
   h: 14, // 2
+  type: 16, // 2
 };
-const BYTES_PER_ENTITY = 16;
+const BYTES_PER_ENTITY = 18;
 
 const CEREAL_HEADER_OFFSETS = {
   id: 0,
 };
 const BYTES_PER_HEADER = 4;
 const BYTES_PER_BLOCK = BYTES_PER_ENTITY + BYTES_PER_HEADER;
+
+const ENTITY_TYPES = {
+  unmovable: 0,
+  water: 1,
+  void: 2,
+};
 
 const MORTON_LUT = new Uint32Array(65536);
 for (let i = 0; i < 65536; i++) {
@@ -85,6 +92,14 @@ class CerealEntity {
   }
   set h(v) {
     this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.h, v);
+  }
+
+  get type() {
+    return this.cs.dv.getUint16(this.index + CEREAL_ENTITY_OFFSETS.type);
+  }
+
+  set type(v) {
+    this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.type, v);
   }
 }
 
@@ -318,12 +333,13 @@ class CerealSpace {
     const keyCutoff =
       (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
 
-    const maxItrs = 1024;
+    const maxItrs = Infinity;
     const startBlock = aBlockIdx + 1;
     const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
     const endBlock = Math.min(totalBlocks, startBlock + maxItrs);
 
     for (let b = startBlock; b < endBlock; b++) {
+      if (b === aBlockIdx) continue;
       const bKey = this.mortonKeys[b];
       if (bKey > keyCutoff) break;
 
@@ -340,7 +356,7 @@ class CerealSpace {
         this._collisionEntity.id = dv.getUint32(
           bBlockOffset + CEREAL_HEADER_OFFSETS.id,
         );
-        callback(entity, this._collisionEntity);
+        callback(entity, this._collisionEntity, this);
       }
     }
   }
@@ -356,55 +372,144 @@ class CerealSpace {
   worldLoop() {
     this.loopEntities((entity) => {
       // Movement
-      movement(entity);
-
+      switch (entity.type) {
+        case ENTITY_TYPES.unmovable:
+          entity.vx = 0;
+          entity.vy = 0;
+          break;
+        case ENTITY_TYPES.water:
+          entity.vy += 2;
+          entity.vx += (Math.random() - 0.5) * 3;
+          break;
+        case ENTITY_TYPES.void:
+        default:
+          break;
+      }
       // Collision
       this.getCollisions(entity, collide);
+
+      // Movement apply
+      entity.px += entity.vx;
+      entity.py += entity.vy;
+      entity.vx *= 0.8;
+      entity.vy *= 0.8;
     });
     this.sort();
   }
 }
 
-function movement(entity) {
-  if (entity.vx === 0 && entity.vy === 0) return;
-  entity.px += entity.vx;
-  entity.py += entity.vy;
-  entity.vx *= 0.8;
-  entity.vy *= 0.8;
-}
-function collide(entityA, entityB) {
-  const widthA = entityA.w;
-  const widthB = entityB.w;
-  const posXA = entityA.px;
-  const posXB = entityB.px;
-  const deltaX = posXA + widthA * 0.5 - (posXB + widthB * 0.5);
-  const overlapX = (widthA + widthB) * 0.5 - Math.abs(deltaX);
-  if (overlapX <= 0) return;
+function collide(entityA, entityB, cs) {
+  const typeA = entityA.type;
+  const typeB = entityB.type;
 
-  const heightA = entityA.h;
-  const heightB = entityB.h;
-  const posYA = entityA.py;
-  const posYB = entityB.py;
-  const deltaY = posYA + heightA * 0.5 - (posYB + heightB * 0.5);
-  const overlapY = (heightA + heightB) * 0.5 - Math.abs(deltaY);
-  if (overlapY <= 0) return;
+  // void deletes
+  if (typeA === ENTITY_TYPES.void) {
+    return cs.deleteEntity(entityB.index);
+  }
+  if (typeB === ENTITY_TYPES.void) {
+    return cs.deleteEntity(entityA.index);
+  }
 
-  const entropy = entityA.id + entityB.id + entityA.index;
-  const flip = (entropy & 1) === 0;
+  // unmovable doesnt collide with unmovable
+  if (typeA === ENTITY_TYPES.unmovable && typeB === ENTITY_TYPES.unmovable) {
+    return;
+  }
 
-  if (overlapX < overlapY) {
-    const dirX = deltaX !== 0 ? (deltaX > 0 ? 1 : -1) : flip ? 1 : -1;
-    const impulse = (overlapX * 0.5 + 1) * dirX;
+  // unmovables hard push other things
+  if (typeA === ENTITY_TYPES.unmovable) {
+    return singleCollideMove(entityA, entityB, 0.4);
+  }
+  if (typeB === ENTITY_TYPES.unmovable) {
+    return singleCollideMove(entityB, entityA, 0.4);
+  }
 
-    entityA.vx += impulse;
-    entityB.vx -= impulse;
-  } else {
-    const dirY = deltaY !== 0 ? (deltaY > 0 ? 1 : -1) : flip ? 1 : -1;
-    const impulse = (overlapY * 0.5 + 1) * dirY;
-
-    entityA.vy += impulse;
-    entityB.vy -= impulse;
+  if (typeA === ENTITY_TYPES.water || typeB === ENTITY_TYPES.water) {
+    return collidePush(entityA, entityB, 0.6);
   }
 }
 
-export { CerealEntity, CerealSpace };
+function collidePush(entityA, entityB, damper) {
+  const centerDistanceX =
+    entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
+  const centerDistanceY =
+    entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
+
+  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
+
+  if (overlapX < overlapY) {
+    const directionX = centerDistanceX >= 0 ? 1 : -1;
+    const impulseX = (overlapX * 0.5 + 1) * directionX;
+    entityA.vx += Math.round(impulseX * damper);
+    entityB.vx -= Math.round(impulseX * damper);
+  } else {
+    const directionY = centerDistanceY >= 0 ? -1 : -1;
+    const impulseY = (overlapY * 0.5 + 1) * directionY;
+    entityA.vy += Math.round(impulseY * damper);
+    entityB.vy -= Math.round(impulseY * damper);
+  }
+}
+
+function singleCollidePush(single, mover, damper) {
+  const centerDistanceX = single.px + single.w / 2 - (mover.px + mover.w / 2);
+  const centerDistanceY = single.py + single.h / 2 - (mover.py + mover.h / 2);
+
+  const overlapX = (single.w + mover.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (single.h + mover.h) / 2 - Math.abs(centerDistanceY);
+
+  if (overlapX < overlapY) {
+    const directionX = centerDistanceX >= 0 ? -1 : 1;
+    mover.vx += Math.round((overlapX + 1) * directionX * damper);
+  } else {
+    const directionY = centerDistanceY >= 0 ? -1 : -1;
+    mover.vy += Math.round((overlapY + 1) * directionY * damper);
+  }
+}
+
+function collideMove(entityA, entityB, damper) {
+  const centerDistanceX =
+    entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
+  const centerDistanceY =
+    entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
+
+  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
+
+  if (overlapX < overlapY) {
+    const directionX = centerDistanceX >= 0 ? 1 : -1;
+    const separationAmount = overlapX / 2 + 1;
+
+    entityA.px += Math.round(separationAmount * directionX);
+    entityB.px -= Math.round(separationAmount * directionX);
+    entityA.vx *= damper;
+    entityB.vx *= damper;
+  } else {
+    const directionY = centerDistanceY >= 0 ? 1 : -1;
+    const separationAmount = overlapY / 2 + 1;
+
+    entityA.py += Math.round(separationAmount * directionY);
+    entityB.py -= Math.round(separationAmount * directionY);
+    entityA.vy *= damper;
+    entityB.vy *= damper;
+  }
+}
+
+function singleCollideMove(single, mover, damper) {
+  const centerDistanceX = single.px + single.w / 2 - (mover.px + mover.w / 2);
+  const centerDistanceY = single.py + single.h / 2 - (mover.py + mover.h / 2);
+
+  const overlapX = (single.w + mover.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (single.h + mover.h) / 2 - Math.abs(centerDistanceY);
+
+  if (overlapX < overlapY) {
+    const directionX = centerDistanceX >= 0 ? -1 : 1;
+    mover.px += Math.round((overlapX + 1) * directionX);
+    mover.vx *= damper;
+  } else {
+    const directionY = centerDistanceY >= 0 ? -1 : 1;
+    mover.py += Math.round((overlapY + 1) * directionY);
+    mover.vy *= damper;
+  }
+}
+
+export { CerealEntity, CerealSpace, ENTITY_TYPES };

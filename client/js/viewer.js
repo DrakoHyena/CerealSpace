@@ -5,8 +5,8 @@ export class CerealViewer {
     this.cs = cerealSpace;
 
     // Default draw function
-    this.drawFunc = (ent) => {
-      this.ctx.fillRect(ent.px, ent.py, ent.w, ent.h);
+    this.drawFunc = (ctx, ent) => {
+      ctx.fillRect(ent.px, ent.py, ent.w, ent.h);
     };
 
     this.camera = {
@@ -217,7 +217,7 @@ export class CerealViewer {
     ctx.fillStyle = "grey";
 
     // User custom draw function
-    cs.loopEntities((ent) => this.drawFunc(ent));
+    cs.loopEntities((ent) => this.drawFunc(ctx, ent));
 
     if (this.camera.isHolding) {
       this._drawToolIndicator(ctx, worldPos);
@@ -282,7 +282,7 @@ export class CerealViewer {
     const toolName = this.tools[this.currentToolKey]?.name || "Unknown";
     drawLine(`Tool: ${this.currentToolKey} - ${toolName}`);
     drawLine(`Size: ${this.spawnSize} | Amount: ${this.spawnAmount || 1}`);
-    drawLine(`Entities: ${this.cs.maxEntities - this.cs.lastFreeId - 1}`);
+    drawLine(`Entities: ${this.cs.maxEntities - this.cs.lastFreeId}`);
 
     currY += 5 * uiScale;
 

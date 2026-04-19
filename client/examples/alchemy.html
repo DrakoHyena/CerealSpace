@@ -1,0 +1,74 @@
+<html>
+
+<head>
+    <link rel="stylesheet" href="/playStyle.css">
+</head>
+
+<body>
+    <script defer type="module">
+        import {CerealSpace, CerealEntity, ENTITY_TYPES} from "/js/ceralSpaceVarients/alchemy.js";
+        import {CerealViewer} from "/js/viewer.js";
+
+        const canvas = document.getElementById("canvas");
+        const cs = new CerealSpace();
+        const viewer = new CerealViewer(canvas, cs);
+
+        function draw(ctx, ent) {
+            let color = "#FFFFFF";
+            switch (ent.type) {
+                case ENTITY_TYPES.unmovable:
+                    color = "#888888"
+                    break;
+                case ENTITY_TYPES.water:
+                    color = "#7777FF"
+                    break;
+                case ENTITY_TYPES.void:
+                    color = "#FF5555"
+                    break;
+            }
+            ctx.fillStyle = color;
+            ctx.fillRect(ent.px, ent.py, ent.w, ent.h);
+        }
+        viewer.setDrawFunc(draw)
+
+        viewer.setTool("1", "Conjure Unmovable", (pos) => {
+            for (let i = 0; i < 1; i++) {
+                let entity = new CerealEntity(cs, cs.addEntity());
+                entity.type = ENTITY_TYPES.unmovable
+                entity.px = pos.x
+                entity.py = pos.y
+                entity.w = viewer.spawnSize * 10;
+                entity.h = viewer.spawnSize * 10;
+            }
+        });
+
+        viewer.setTool("2", "Conjure Void", (pos) => {
+            for (let i = 0; i < viewer.spawnAmount; i++) {
+                let entity = new CerealEntity(cs, cs.addEntity());
+                entity.type = ENTITY_TYPES.void
+                entity.px = pos.x + (Math.random() - 0.5) * 120;
+                entity.py = pos.y + (Math.random() - 0.5) * 120;
+                entity.w = viewer.spawnSize;
+                entity.h = viewer.spawnSize;
+            }
+        });
+
+        viewer.setTool("3", "Conjure Water", (pos) => {
+            for (let i = 0; i < viewer.spawnAmount; i++) {
+                let entity = new CerealEntity(cs, cs.addEntity());
+                entity.type = ENTITY_TYPES.water
+                entity.px = pos.x
+                entity.py = pos.y
+                entity.vx = (Math.random() - 0.5) * 20;
+                entity.vy = (Math.random() - 0.5) * 20;
+                entity.w = viewer.spawnSize;
+                entity.h = viewer.spawnSize;
+            }
+        });
+
+    </script>
+    <canvas id="canvas"></canvas>
+</body>
+
+
+</html>
