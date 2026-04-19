@@ -248,50 +248,61 @@ export class CerealViewer {
     ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
     ctx.stroke();
   }
-
   _drawUI() {
     const { averages } = this.perf;
-    this.ctx.fillStyle = "rgba(0,0,0,0.7)";
-    this.ctx.fillRect(10, 10, 350, 140);
-    this.ctx.fillStyle = "white";
-    this.ctx.font = "12px monospace";
+    const ctx = this.ctx;
 
-    let y = 30;
-    this.ctx.fillText(
-      `Tool: ${this.currentToolKey} - ${this.tools[this.currentToolKey].name}`,
-      20,
-      y,
+    const baseScale = Math.min(
+      this.canvas.width / 1000,
+      this.canvas.height / 700,
     );
-    y += 20;
-    this.ctx.fillText(
-      `Size: ${this.spawnSize} | Amount: ${this.spawnAmount}`,
-      20,
-      y,
-    );
-    y += 20;
-    this.ctx.fillText(`Ents: ${this.cs.nextEntityId - 1}`, 20, y);
-    y += 25;
+    const uiScale = Math.max(0.6, Math.min(baseScale, 2.5));
 
-    this.ctx.fillStyle = "#00ff00";
-    this.ctx.fillText(
-      `World: ${averages.world.toFixed(3)}ms (target: ${(33.333 - averages.render).toFixed(3)}ms)`,
-      20,
-      y,
+    const padding = 20 * uiScale;
+    const fontSize = 13 * uiScale;
+    const lineSpacing = 18 * uiScale;
+    const boxWidth = 350 * uiScale;
+    const boxHeight = 160 * uiScale;
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+    ctx.fillRect(10 * uiScale, 10 * uiScale, boxWidth, boxHeight);
+
+    ctx.font = `${Math.round(fontSize)}px monospace`;
+    ctx.textBaseline = "top";
+
+    let currX = 10 * uiScale + padding;
+    let currY = 10 * uiScale + padding;
+
+    const drawLine = (text, color = "white") => {
+      ctx.fillStyle = color;
+      ctx.fillText(text, currX, currY);
+      currY += lineSpacing;
+    };
+
+    const toolName = this.tools[this.currentToolKey]?.name || "Unknown";
+    drawLine(`Tool: ${this.currentToolKey} - ${toolName}`);
+    drawLine(`Size: ${this.spawnSize} | Amount: ${this.spawnAmount || 1}`);
+    drawLine(`Entities: ${this.cs.nextEntityId - 1}`);
+
+    currY += 5 * uiScale;
+
+    const targetTime = 1000 / 33;
+
+    drawLine(
+      `World: ${averages.world.toFixed(3)}ms (target: ${(targetTime - averages.render).toFixed(2)})`,
+      "#00ff00",
     );
-    y += 15;
-    this.ctx.fillText(`Tools: ${averages.tools.toFixed(3)}ms`, 20, y);
-    y += 15;
-    this.ctx.fillText(
-      `Render : ${averages.render.toFixed(3)}ms (target: ${(33.333 - averages.world).toFixed(3)}ms)`,
-      20,
-      y,
+    drawLine(`Tools: ${averages.tools.toFixed(3)}ms`, "#00ff00");
+    drawLine(
+      `Render : ${averages.render.toFixed(3)}ms (target: ${(targetTime - averages.world).toFixed(2)})`,
+      "#00ff00",
     );
-    y += 15;
-    this.ctx.fillText(
-      `Est Slowdown: ${(((averages.world + averages.tools + averages.render) / (1000 / 30) - 1) * 100).toFixed(3)}%`,
-      20,
-      y,
-    );
-    y += 15;
+
+    // Calc Slowdown
+    const totalTime = averages.world + averages.tools + averages.render;
+    const slowdown = (totalTime / (1000 / 30) - 1) * 100;
+    const slowColor = slowdown > 0 ? "#FF4444" : "#AAAAAA";
+
+    drawLine(`Est Slowdown: ${slowdown.toFixed(2)}%`, slowColor);
   }
 }

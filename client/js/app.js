@@ -11,7 +11,7 @@ viewer.setTool("1", "Spawn Entity", (pos) => {
     entity.py = pos.y;
     entity.w = viewer.spawnSize;
     entity.h = viewer.spawnSize;
-    entity.vx = (Math.random() - 0.5) * 10;
-    entity.vy = (Math.random() - 0.5) * 10;
+    entity.vx = (Math.random() - 0.5) * 20;
+    entity.vy = (Math.random() - 0.5) * 20;
   }
 });
