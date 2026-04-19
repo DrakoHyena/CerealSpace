@@ -123,9 +123,14 @@ class CerealSpace {
     this.blockToIndex = new Uint32Array(this.maxEntities);
     this.blockToIndexTemp = new Uint32Array(this.maxEntities);
 
-    this.freeIndex = 0;
-    this.nextEntityId = 1;
     this.idToDataIndex = new Uint32Array(this.maxEntities);
+    this.freeIds = new Uint32Array(this.maxEntities);
+    for (let i = 0; i < this.maxEntities; i++) {
+      this.freeIds[i] = i + 1;
+    }
+    this.lastFreeId = this.maxEntities - 1;
+
+    this.freeIndex = 0;
 
     this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
@@ -134,19 +139,22 @@ class CerealSpace {
 
   addEntity() {
     const blockStart = this.freeIndex;
-    this.dv.setUint32(
-      blockStart + CERAL_HEADER_OFFSETS.id,
-      this.nextEntityId++,
-    );
-    this.freeIndex += BYTES_PER_BLOCK;
+    const id = this.freeIds[this.lastFreeId--];
+    this.dv.setUint32(blockStart + CERAL_HEADER_OFFSETS.id, id);
     const dataIndex = blockStart + BYTES_PER_HEADER;
-    this.idToDataIndex[this.nextEntityId - 1] = dataIndex;
+    this.idToDataIndex[id] = dataIndex;
+    this.freeIndex += BYTES_PER_BLOCK;
     return dataIndex;
   }
 
   deleteEntity(dataIndex) {
     const blockStart = dataIndex - BYTES_PER_HEADER;
     const lastBlockStart = this.freeIndex - BYTES_PER_BLOCK;
+
+    this.lastFreeId++;
+    this.freeIds[this.lastFreeId] = this.dv.getUint32(
+      blockStart + CERAL_HEADER_OFFSETS.id,
+    );
 
     if (blockStart !== lastBlockStart) {
       this.u8.copyWithin(blockStart, lastBlockStart, this.freeIndex);
@@ -281,7 +289,7 @@ class CerealSpace {
       const bx2 = bx1 + this.dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.w);
       const by2 = by1 + this.dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.h);
 
-      if (x1 < bx2 && x2 > bx1 && y1 < by2 && y2 > by1) {
+      if (x1 <= bx2 && x2 >= bx1 && y1 <= by2 && y2 >= by1) {
         this._queryEntity.index = bDataOffset;
         this._queryEntity.id = this.dv.getUint32(
           bBlockOffset + CERAL_HEADER_OFFSETS.id,
@@ -325,7 +333,7 @@ class CerealSpace {
       const bx2 = bx1 + dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.w);
       const by2 = by1 + dv.getUint16(bDataOffset + CERAL_ENTITY_OFFSETS.h);
 
-      if (ax1 < bx2 && ax2 > bx1 && ay1 < by2 && ay2 > by1) {
+      if (ax1 <= bx2 && ax2 >= bx1 && ay1 <= by2 && ay2 >= by1) {
         this._collisionEntity.index = bDataOffset;
         this._collisionEntity.id = dv.getUint32(
           bBlockOffset + CERAL_HEADER_OFFSETS.id,

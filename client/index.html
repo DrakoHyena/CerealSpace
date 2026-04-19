@@ -1,22 +1,55 @@
 <html>
 
 <head>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-        }
-
-        canvas {
-            width: 100%;
-            height: 100%;
-        }
-    </style>
+    <link href="/style.css" rel="stylesheet">
 </head>
 
 <body>
-    <script src="/js/app.js" defer type="module"></script>
-    <canvas id="canvas"></canvas>
+    <div class="siteContainer">
+        <div class="sidebar">
+            <ul>
+                <li><a href="#about">About</a></li>
+                <li><a href="#examples">Examples</a></li>
+                <ul>
+                    <li><a href="#baseExample">Base</a></li>
+                    <li><a href="#alchemyExample">Alchemy</a></li>
+                </ul>
+            </ul>
+        </div>
+        <div class="content">
+            <h1 id="about">About</h1>
+            <p>
+                Cereal Space is a fast, pure js, entity management system that aims to
+                "solve" the common technical hurdles that can hinder indie webgame developement.
+                As such, you can expect most things from collisions and networking to already be done
+                for you and should be as fast as possible out of the box. However, you should still
+                at least have an idea of how things work, because you are expected to use Cereal Space
+                as a template to build off of, aiding in performance.
+            </p>
+            <p>
+                This engine works off of storing entities as data in an ArrayBuffer. This allows us
+                to have granular control over the memory and the ability to quickly manipulate it, which
+                is why so many entities can be handled at once. This has the upside of making network
+                signifigantly cheaper than it would be otherwise since the data is already in a sorted
+                ArrayBuffer.
+            </p>
+
+            <h1 id="examples">Examples</h1>
+            <p>
+                Below are some examples that I've made so you can see the limits of the engine.
+                Use "-" and "+" to change the size. Use "[" and "]" to change the amount.
+                Use the number keys to change your active tool.
+            </p>
+
+            <h2 id="baseExample">Base</h2>
+            <p>The base CerealSpace template. The fastest and most minimal version.</p>
+            <a href="/examples/base.html">Play</a>
+
+            <h2 id="alchemyExample">Alchemy</h2>
+            <p>A small alchemy simulation made using Cereal Space.</p>
+            <a href="/examples/alchemy.html">Play</a>
+        </div>
+    </div>
 </body>
 
 </html>

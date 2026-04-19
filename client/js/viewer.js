@@ -282,7 +282,7 @@ export class CerealViewer {
     const toolName = this.tools[this.currentToolKey]?.name || "Unknown";
     drawLine(`Tool: ${this.currentToolKey} - ${toolName}`);
     drawLine(`Size: ${this.spawnSize} | Amount: ${this.spawnAmount || 1}`);
-    drawLine(`Entities: ${this.cs.nextEntityId - 1}`);
+    drawLine(`Entities: ${this.cs.maxEntities - this.cs.lastFreeId - 1}`);
 
     currY += 5 * uiScale;
 
