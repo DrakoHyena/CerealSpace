@@ -28,8 +28,26 @@
                 case ENTITY_TYPES.steam:
                     color = "#FFFFFF99";
                     break;
+                case ENTITY_TYPES.smoke:
+                    color = "#38383899";
+                    break;
+                case ENTITY_TYPES.charcoal:
+                    color = "#3b464a";
+                    break;
+                case ENTITY_TYPES.wood:
+                    color = "#22a358";
+                    break;
+                case ENTITY_TYPES.burningWood:
+                    color = "#165428";
+                    break;
                 case ENTITY_TYPES.void:
                     color = "#FF5555"
+                    break;
+                case ENTITY_TYPES.sand:
+                    color = "#19cf80";
+                    break;
+                case ENTITY_TYPES.glass:
+                    color = "#FFFFFF66"
                     break;
             }
             ctx.fillStyle = color;
@@ -77,7 +95,7 @@
                 let entity = new CerealEntity(cs, cs.addEntity());
                 entity.type = ENTITY_TYPES.fire
                 entity.lifetime = 100;
-                entity.heat = 2000;
+                entity.heat = 1000;
                 entity.px = pos.x
                 entity.py = pos.y
                 entity.vx = (Math.random() - 0.5) * viewer.spawnSize * 5;
@@ -87,6 +105,29 @@
             }
         });
 
+        viewer.setTool("5", "Conjure Wood", (pos) => {
+            for (let i = 0; i < viewer.spawnAmount; i++) {
+                let entity = new CerealEntity(cs, cs.addEntity());
+                entity.type = ENTITY_TYPES.wood;
+                entity.px = pos.x + (Math.random() - 0.5) * viewer.spawnSize * 4;
+                entity.py = pos.y + (Math.random() - 0.5) * viewer.spawnSize * 4;
+                entity.w = viewer.spawnSize;
+                entity.h = viewer.spawnSize;
+            }
+        });
+
+        viewer.setTool("6", "Conjure Sand", (pos) => {
+            for (let i = 0; i < viewer.spawnAmount; i++) {
+                let entity = new CerealEntity(cs, cs.addEntity());
+                entity.type = ENTITY_TYPES.sand
+                entity.px = pos.x
+                entity.py = pos.y
+                entity.vx = (Math.random() - 0.5) * viewer.spawnSize * 5;
+                entity.vy = (Math.random() - 0.5) * viewer.spawnSize * 5;
+                entity.w = viewer.spawnSize;
+                entity.h = viewer.spawnSize;
+            }
+        });
     </script>
     <canvas id="canvas"></canvas>
 </body>

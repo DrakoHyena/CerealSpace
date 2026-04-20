@@ -1,6 +1,7 @@
-- Front end
-  - Website with different info pages and a viewer for each sim
 - Alchemy
+  - ele 7 = acid
+  - acid + heat = gas
+  - gas - heat = oil
+  - acid eats through not unmovable not void and not glass
 - Networking (shareddarray for now..)
   - Views
-- Make an actual front-end and not ai slop

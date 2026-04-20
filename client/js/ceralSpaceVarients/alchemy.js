@@ -23,6 +23,13 @@ const ENTITY_TYPES = {
   void: 2,
   fire: 3,
   steam: 4,
+  wood: 5,
+  burningWood: 6,
+  charcoal: 7,
+  smoke: 8,
+  sand: 9,
+  glass: 10,
+  explosive: 11,
 };
 
 const MORTON_LUT = new Uint32Array(65536);
@@ -170,6 +177,8 @@ class CerealSpace {
     this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._queryEntity = new CerealEntity(this, BYTES_PER_HEADER);
+
+    this.tick = 0;
   }
 
   addEntity() {
@@ -381,9 +390,12 @@ class CerealSpace {
       }
     }
   }
-
   loopEntities(cb) {
-    for (let i = 0; i < this.freeIndex; i += BYTES_PER_BLOCK) {
+    for (
+      let i = this.freeIndex - BYTES_PER_BLOCK;
+      i >= 0;
+      i -= BYTES_PER_BLOCK
+    ) {
       this._loopEntity.id = this.dv.getUint32(i + CEREAL_HEADER_OFFSETS.id);
       this._loopEntity.index = i + BYTES_PER_HEADER;
       cb(this._loopEntity);
@@ -391,6 +403,7 @@ class CerealSpace {
   }
 
   worldLoop() {
+    this.tick++;
     this.loopEntities((entity) => {
       // Movement & Heat & Misc
       const entityType = entity.type;
@@ -400,10 +413,15 @@ class CerealSpace {
           entity.vy = 0;
           break;
 
+        case ENTITY_TYPES.glass:
+          entity.vx *= 0.25;
+          entity.vy *= 0.25;
+          break;
+
         case ENTITY_TYPES.water:
           entity.vy += 3;
           entity.vx += (Math.random() - 0.5) * 3;
-          if (entity.heat > 100) entity.type = ENTITY_TYPES.steam;
+          if (entity.heat > 80) entity.type = ENTITY_TYPES.steam;
           break;
 
         case ENTITY_TYPES.fire:
@@ -412,10 +430,91 @@ class CerealSpace {
           if (entity.heat < 100) entity.lifetime = 1;
           break;
 
+        case ENTITY_TYPES.smoke:
+          entity.vy -= 1;
+          entity.vx += (Math.random() - 0.5) * 3;
+          break;
+
         case ENTITY_TYPES.steam:
-          entity.vy -= 2;
-          entity.vx += (Math.random() - 0.5) * 8;
-          if (entity.heat < 50) entity.type = ENTITY_TYPES.water;
+          entity.vy -= 1;
+          entity.vx += (Math.random() - 0.5) * 10;
+          if (entity.heat < 25) entity.type = ENTITY_TYPES.water;
+          break;
+
+        case ENTITY_TYPES.wood:
+          entity.vy += 1;
+          if (entity.heat > 250) {
+            entity.type = ENTITY_TYPES.burningWood;
+            entity.lifetime = 3000;
+          }
+          break;
+
+        case ENTITY_TYPES.burningWood:
+          entity.vy += 1;
+          if (this.tick % 9 === 0) {
+            let entA = new CerealEntity(this, this.addEntity());
+            entA.type = ENTITY_TYPES.fire;
+            entA.lifetime = 300;
+            entA.heat = 2500;
+            entA.px = entity.px + entity.w * 0.5;
+            entA.py = entity.py - entity.h;
+            entA.vx += (Math.random() - 0.5) * 5;
+            entA.vy += 2 * Math.random();
+            entA.w = entity.w * 0.5;
+            entA.h = entity.h * 0.5;
+          }
+
+          if (this.tick % 18 === 0) {
+            let entB = new CerealEntity(this, this.addEntity());
+            entB.type = ENTITY_TYPES.smoke;
+            entB.lifetime = 600;
+            entB.heat = 300;
+            entB.px = entity.px + entity.w * 0.5;
+            entB.py = entity.py - entity.h;
+            entB.w = entity.w * 0.5;
+            entB.h = entity.h * 0.5;
+          }
+
+          if (entity.heat < 150 || entity.lifetime === 1) {
+            entity.type = ENTITY_TYPES.charcoal;
+            entity.lifetime = 0;
+          }
+          break;
+
+        case ENTITY_TYPES.charcoal:
+          entity.vy += 1;
+
+          if (entity.heat > 100) {
+            if (this.tick % 5 === 0) {
+              let entA = new CerealEntity(this, this.addEntity());
+              entA.type = ENTITY_TYPES.fire;
+              entA.lifetime = 200;
+              entA.heat = 1000;
+              entA.px = entity.px + entity.w * 0.5;
+              entA.py = entity.py - entity.h;
+              entA.vx += (Math.random() - 0.5) * 5;
+              entA.vy += 2 * Math.random();
+              entA.w = entity.w * 0.5;
+              entA.h = entity.h * 0.5;
+            }
+            if (this.tick % 50 === 0) {
+              let entB = new CerealEntity(this, this.addEntity());
+              entB.type = ENTITY_TYPES.smoke;
+              entB.lifetime = 150;
+              entB.heat = 300;
+              entB.px = entity.px + entity.w * 0.5;
+              entB.py = entity.py - entity.h;
+              entB.w = entity.w * 0.5;
+              entB.h = entity.h * 0.5;
+            }
+          }
+          break;
+
+        case ENTITY_TYPES.sand:
+          entity.vy += 2;
+          if (entity.heat > 1250) {
+            entity.type = ENTITY_TYPES.glass;
+          }
           break;
 
         case ENTITY_TYPES.void:
@@ -472,14 +571,49 @@ function collide(entityA, entityB, cs) {
 
   // unmovables hard push other things
   if (typeA === ENTITY_TYPES.unmovable) {
-    return singleCollideMove(entityA, entityB, 0.2);
+    return singleCollideMove(entityA, entityB, 0.1);
   }
   if (typeB === ENTITY_TYPES.unmovable) {
-    return singleCollideMove(entityB, entityA, 0.2);
+    return singleCollideMove(entityB, entityA, 0.1);
+  }
+
+  if (typeA === ENTITY_TYPES.glass) {
+    return singleCollideMove(entityA, entityB, 0.95);
+  }
+  if (typeB === ENTITY_TYPES.glass) {
+    return singleCollideMove(entityB, entityA, 0.95);
+  }
+
+  const solidStackerA =
+    typeA === ENTITY_TYPES.sand ||
+    typeA === ENTITY_TYPES.wood ||
+    typeA === ENTITY_TYPES.burningWood ||
+    typeA === ENTITY_TYPES.charcoal;
+  const solidStackerB =
+    typeB === ENTITY_TYPES.sand ||
+    typeB === ENTITY_TYPES.wood ||
+    typeB === ENTITY_TYPES.burningWood ||
+    typeB === ENTITY_TYPES.charcoal;
+  if (solidStackerA && solidStackerB) {
+    if (entityA.px < entityB.px) {
+      return singleCollideMove(entityA, entityB, 0);
+    } else {
+      return singleCollideMove(entityB, entityA, 0);
+    }
+  }
+  if (solidStackerA) {
+    return singleCollideMove(entityA, entityB, 0.1);
+  }
+  if (solidStackerB) {
+    return singleCollideMove(entityB, entityA, 0.1);
+  }
+
+  if (typeA === ENTITY_TYPES.smoke || typeB === ENTITY_TYPES.smoke) {
+    return collidePush(entityA, entityB, 0.5);
   }
 
   if (typeA === ENTITY_TYPES.steam || typeB === ENTITY_TYPES.steam) {
-    return collidePush(entityA, entityB, 0.8);
+    return collidePush(entityA, entityB, 0.5);
   }
 
   if (typeA === ENTITY_TYPES.water || typeB === ENTITY_TYPES.water) {
@@ -502,12 +636,12 @@ function collidePush(entityA, entityB, damper) {
 
   if (overlapX < overlapY) {
     const directionX = centerDistanceX >= 0 ? 1 : -1;
-    const impulseX = (overlapX * 0.5 + 1) * directionX;
+    const impulseX = overlapX * 0.5 * directionX;
     entityA.vx += Math.round(impulseX * damper);
     entityB.vx -= Math.round(impulseX * damper);
   } else {
     const directionY = centerDistanceY >= 0 ? -1 : -1;
-    const impulseY = (overlapY * 0.5 + 1) * directionY;
+    const impulseY = overlapY * 0.5 * directionY;
     entityA.vy += Math.round(impulseY * damper);
     entityB.vy -= Math.round(impulseY * damper);
   }
@@ -522,10 +656,10 @@ function singleCollidePush(single, mover, damper) {
 
   if (overlapX < overlapY) {
     const directionX = centerDistanceX >= 0 ? -1 : 1;
-    mover.vx += Math.round((overlapX + 1) * directionX * damper);
+    mover.vx += Math.round(overlapX * directionX * damper);
   } else {
     const directionY = centerDistanceY >= 0 ? -1 : -1;
-    mover.vy += Math.round((overlapY + 1) * directionY * damper);
+    mover.vy += Math.round(overlapY * directionY * damper);
   }
 }
 
@@ -540,7 +674,7 @@ function collideMove(entityA, entityB, damper) {
 
   if (overlapX < overlapY) {
     const directionX = centerDistanceX >= 0 ? 1 : -1;
-    const separationAmount = overlapX / 2 + 1;
+    const separationAmount = overlapX / 2;
 
     entityA.px += Math.round(separationAmount * directionX);
     entityB.px -= Math.round(separationAmount * directionX);
@@ -548,7 +682,7 @@ function collideMove(entityA, entityB, damper) {
     entityB.vx *= damper;
   } else {
     const directionY = centerDistanceY >= 0 ? 1 : -1;
-    const separationAmount = overlapY / 2 + 1;
+    const separationAmount = overlapY / 2;
 
     entityA.py += Math.round(separationAmount * directionY);
     entityB.py -= Math.round(separationAmount * directionY);
@@ -566,11 +700,11 @@ function singleCollideMove(single, mover, damper) {
 
   if (overlapX < overlapY) {
     const directionX = centerDistanceX >= 0 ? -1 : 1;
-    mover.px += Math.round((overlapX + 1) * directionX);
+    mover.px += Math.round(overlapX * directionX);
     mover.vx *= damper;
   } else {
     const directionY = centerDistanceY >= 0 ? -1 : 1;
-    mover.py += Math.round((overlapY + 1) * directionY);
+    mover.py += Math.round(overlapY * directionY);
     mover.vy *= damper;
   }
 }

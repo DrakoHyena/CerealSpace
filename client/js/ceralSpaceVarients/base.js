@@ -346,7 +346,11 @@ class CerealSpace {
   }
 
   loopEntities(cb) {
-    for (let i = 0; i < this.freeIndex; i += BYTES_PER_BLOCK) {
+    for (
+      let i = this.freeIndex - BYTES_PER_BLOCK;
+      i >= 0;
+      i -= BYTES_PER_BLOCK
+    ) {
       this._loopEntity.id = this.dv.getUint32(i + CEREAL_HEADER_OFFSETS.id);
       this._loopEntity.index = i + BYTES_PER_HEADER;
       cb(this._loopEntity);
