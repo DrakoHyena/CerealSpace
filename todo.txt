@@ -1,7 +1,7 @@
-- Alchemy
-  - ele 7 = acid
-  - acid + heat = gas
-  - gas - heat = oil
-  - acid eats through not unmovable not void and not glass
+- See AI chat about optimizations
+  - Tiny WASM part?
+  - 11 bit radix
+- Actually clean up memory, speculate cpu cache
+- Render thread, Server thread
 - Networking (shareddarray for now..)
   - Views

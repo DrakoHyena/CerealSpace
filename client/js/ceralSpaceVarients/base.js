@@ -1,36 +1,19 @@
-const CEREAL_ENTITY_OFFSETS = {
-  px: 0, // 2
-  py: 2, // 2
-  vx: 4, // 4
-  vy: 8, // 4
-  w: 12, // 2
-  h: 14, // 2
-};
-const BYTES_PER_ENTITY = 16;
+const CEREAL_ENTITY_OFFSETS = parseOffsets({
+  px: 2,
+  py: 2,
+  vx: 4,
+  vy: 4,
+  w: 2,
+  h: 2,
+});
 
-const CEREAL_HEADER_OFFSETS = {
-  id: 0,
-};
-const BYTES_PER_HEADER = 4;
+const CEREAL_HEADER_OFFSETS = parseOffsets({
+  id: 2,
+});
+
+const BYTES_PER_ENTITY = CEREAL_ENTITY_OFFSETS._totalBytes;
+const BYTES_PER_HEADER = CEREAL_HEADER_OFFSETS._totalBytes;
 const BYTES_PER_BLOCK = BYTES_PER_ENTITY + BYTES_PER_HEADER;
-
-const MORTON_LUT = new Uint32Array(65536);
-for (let i = 0; i < 65536; i++) {
-  let x = i;
-  x = (x | (x << 8)) & 0x00ff00ff;
-  x = (x | (x << 4)) & 0x0f0f0f0f;
-  x = (x | (x << 2)) & 0x33333333;
-  x = (x | (x << 1)) & 0x55555555;
-  MORTON_LUT[i] = x;
-}
-const DECODE_LUT = new Uint16Array(65536);
-for (let i = 0; i < 65536; i++) {
-  let res = 0;
-  for (let bit = 0; bit < 16; bit++) {
-    if (i & (1 << (bit * 2))) res |= 1 << bit;
-  }
-  DECODE_LUT[i] = res;
-}
 
 class CerealEntity {
   constructor(cerealSpace, index) {
@@ -139,6 +122,7 @@ class CerealSpace {
 
   addEntity() {
     const blockStart = this.freeIndex;
+    this.u8.fill(0, blockStart, blockStart + BYTES_PER_BLOCK);
     const id = this.freeIds[this.lastFreeId--];
     this.dv.setUint32(blockStart + CEREAL_HEADER_OFFSETS.id, id);
     const dataIndex = blockStart + BYTES_PER_HEADER;
@@ -409,6 +393,28 @@ function collide(entityA, entityB) {
     entityA.vy += impulse;
     entityB.vy -= impulse;
   }
+}
+
+const MORTON_LUT = new Uint32Array(65536);
+for (let i = 0; i < 65536; i++) {
+  let x = i;
+  x = (x | (x << 8)) & 0x00ff00ff;
+  x = (x | (x << 4)) & 0x0f0f0f0f;
+  x = (x | (x << 2)) & 0x33333333;
+  x = (x | (x << 1)) & 0x55555555;
+  MORTON_LUT[i] = x;
+}
+
+// Util
+function parseOffsets(obj) {
+  const newObj = {};
+  let bytes = 0;
+  for (let key in obj) {
+    newObj[key] = bytes;
+    bytes += obj[key];
+  }
+  newObj._totalBytes = bytes;
+  return newObj;
 }
 
 export { CerealEntity, CerealSpace };
