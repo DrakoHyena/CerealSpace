@@ -8,7 +8,7 @@ const CEREAL_ENTITY_OFFSETS = parseOffsets({
 });
 
 const CEREAL_HEADER_OFFSETS = parseOffsets({
-  id: 2,
+  id: 4,
 });
 
 const BYTES_PER_ENTITY = CEREAL_ENTITY_OFFSETS._totalBytes;
