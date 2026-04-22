@@ -302,7 +302,7 @@ class CerealSpace {
     const keyCutoff =
       (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
 
-    const maxItrs = 1024;
+    const maxItrs = Infinity;
     const startBlock = aBlockIdx + 1;
     const totalBlocks = this.freeIndex / BYTES_PER_BLOCK;
     const endBlock = Math.min(totalBlocks, startBlock + maxItrs);
@@ -345,7 +345,6 @@ class CerealSpace {
     this.loopEntities((entity) => {
       // Movement
       movement(entity);
-
       // Collision
       this.getCollisions(entity, collide);
     });
@@ -360,38 +359,25 @@ function movement(entity) {
   entity.vx *= 0.8;
   entity.vy *= 0.8;
 }
-function collide(entityA, entityB) {
-  const widthA = entityA.w;
-  const widthB = entityB.w;
-  const posXA = entityA.px;
-  const posXB = entityB.px;
-  const deltaX = posXA + widthA * 0.5 - (posXB + widthB * 0.5);
-  const overlapX = (widthA + widthB) * 0.5 - Math.abs(deltaX);
-  if (overlapX <= 0) return;
+function collide(entityA, entityB, damper = 1) {
+  const centerDistanceX =
+    entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
+  const centerDistanceY =
+    entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
 
-  const heightA = entityA.h;
-  const heightB = entityB.h;
-  const posYA = entityA.py;
-  const posYB = entityB.py;
-  const deltaY = posYA + heightA * 0.5 - (posYB + heightB * 0.5);
-  const overlapY = (heightA + heightB) * 0.5 - Math.abs(deltaY);
-  if (overlapY <= 0) return;
-
-  const entropy = entityA.id + entityB.id + entityA.index;
-  const flip = (entropy & 1) === 0;
+  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
 
   if (overlapX < overlapY) {
-    const dirX = deltaX !== 0 ? (deltaX > 0 ? 1 : -1) : flip ? 1 : -1;
-    const impulse = (overlapX * 0.5 + 1) * dirX;
-
-    entityA.vx += impulse;
-    entityB.vx -= impulse;
+    const directionX = centerDistanceX >= 0 ? 1 : -1;
+    const impulseX = overlapX * 0.5 * directionX;
+    entityA.vx += Math.round(impulseX * damper);
+    entityB.vx -= Math.round(impulseX * damper);
   } else {
-    const dirY = deltaY !== 0 ? (deltaY > 0 ? 1 : -1) : flip ? 1 : -1;
-    const impulse = (overlapY * 0.5 + 1) * dirY;
-
-    entityA.vy += impulse;
-    entityB.vy -= impulse;
+    const directionY = centerDistanceY >= 0 ? -1 : -1;
+    const impulseY = overlapY * 0.5 * directionY;
+    entityA.vy += Math.round(impulseY * damper);
+    entityB.vy -= Math.round(impulseY * damper);
   }
 }
 
