@@ -67,6 +67,9 @@ function serveStaticFile(req, res) {
         return;
       }
 
+      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+      res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+
       // Generate a strong ETag from file stats. ETags must be quoted.
       const etag = `"${crypto.createHash("sha1").update(`${stats.mtime.getTime()}-${stats.size}`).digest("base64")}"`;
 
