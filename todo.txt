@@ -1,7 +1,3 @@
-- See AI chat about optimizations
-  - Tiny WASM part?
-  - 11 bit radix
-- Actually clean up memory, speculate cpu cache
 - Render thread, Server thread
 - Networking (shareddarray for now..)
   - Views

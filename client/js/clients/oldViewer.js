@@ -1,8 +1,11 @@
+import { BYTES_PER_BLOCK } from "/js/entities/base.js";
+
 export class CerealViewer {
-  constructor(canvas, cerealSpace) {
+  constructor(canvas, cerealSpace, tickCs) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.cs = cerealSpace;
+    this.tickCs = tickCs;
 
     // Default draw function
     this.drawFunc = (ctx, ent) => {
@@ -181,7 +184,7 @@ export class CerealViewer {
       this.perf.buffers.tools.push(performance.now() - tT0);
 
       const tW0 = performance.now();
-      this.cs.worldLoop();
+      this.tickCs(this.cs);
       this.perf.buffers.world.push(performance.now() - tW0);
 
       this._render(worldPos);
@@ -282,7 +285,7 @@ export class CerealViewer {
     const toolName = this.tools[this.currentToolKey]?.name || "Unknown";
     drawLine(`Tool: ${this.currentToolKey} - ${toolName}`);
     drawLine(`Size: ${this.spawnSize} | Amount: ${this.spawnAmount || 1}`);
-    drawLine(`Entities: ${this.cs.maxEntities - this.cs.lastFreeId}`);
+    drawLine(`Entities: ${this.cs.freeIndex / BYTES_PER_BLOCK}`);
 
     currY += 5 * uiScale;
 

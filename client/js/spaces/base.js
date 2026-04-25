@@ -1,84 +1,66 @@
-const CEREAL_ENTITY_OFFSETS = parseOffsets({
-  px: 2,
-  py: 2,
-  vx: 4,
-  vy: 4,
-  w: 2,
-  h: 2,
-});
+import { CONFIG } from "/js/configs/base.js";
+import {
+  CerealEntity,
+  CEREAL_HEADER_OFFSETS,
+  CEREAL_ENTITY_OFFSETS,
+  CEREAL_U32_HEADER_OFFSETS,
+  CEREAL_U32_ENTITY_OFFSETS,
+  BYTES_PER_BLOCK,
+  BYTES_PER_HEADER,
+  BYTES_PER_ENTITY,
+  u32_PER_BLOCK,
+  U32_PER_HEADER,
+  u32_PER_ENTITY,
+} from "/js/entities/base.js";
 
-const CEREAL_HEADER_OFFSETS = parseOffsets({
-  id: 4,
-});
+function tickCerealSpace(cs) {
+  cs.loopEntities((entity) => {
+    // Movement
+    movement(entity);
+    // Collision
+    if (cs.tick % CONFIG.CerealSpace.collisionInterval === 0)
+      cs.getCollisions(entity, collide);
+  });
+  if (cs.tick % CONFIG.CerealSpace.sortInterval === 0) cs.sort();
+  cs.tick++;
+}
 
-const BYTES_PER_ENTITY = CEREAL_ENTITY_OFFSETS._totalBytes;
-const BYTES_PER_HEADER = CEREAL_HEADER_OFFSETS._totalBytes;
-const BYTES_PER_BLOCK = BYTES_PER_ENTITY + BYTES_PER_HEADER;
-const u32_PER_BLOCK = BYTES_PER_BLOCK / 4;
+function movement(entity) {
+  if (entity.vx === 0 && entity.vy === 0) return;
+  entity.px += entity.vx;
+  entity.py += entity.vy;
+  entity.vx *= 0.8;
+  entity.vy *= 0.8;
+}
 
-class CerealEntity {
-  constructor(cerealSpace, index) {
-    this.cs = cerealSpace;
-    this.id = this.cs.dv.getUint32(
-      index - BYTES_PER_HEADER + CEREAL_HEADER_OFFSETS.id,
-      true,
-    );
-    this.index = index;
-  }
+function collide(entityA, entityB, damper = 0.9) {
+  const centerDistanceX =
+    entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
+  const centerDistanceY =
+    entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
 
-  sync() {
-    this.index = this.cs.idToDataIndex[this.id];
-  }
+  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
 
-  get px() {
-    return this.cs.dv.getUint16(this.index + CEREAL_ENTITY_OFFSETS.px, true);
-  }
-  set px(v) {
-    this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.px, v, true);
-  }
-
-  get py() {
-    return this.cs.dv.getUint16(this.index + CEREAL_ENTITY_OFFSETS.py, true);
-  }
-  set py(v) {
-    this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.py, v, true);
-  }
-
-  get vx() {
-    return this.cs.dv.getInt32(this.index + CEREAL_ENTITY_OFFSETS.vx, true);
-  }
-  set vx(v) {
-    this.cs.dv.setInt32(this.index + CEREAL_ENTITY_OFFSETS.vx, v, true);
-  }
-
-  get vy() {
-    return this.cs.dv.getInt32(this.index + CEREAL_ENTITY_OFFSETS.vy, true);
-  }
-  set vy(v) {
-    this.cs.dv.setInt32(this.index + CEREAL_ENTITY_OFFSETS.vy, v, true);
-  }
-
-  get w() {
-    return this.cs.dv.getUint16(this.index + CEREAL_ENTITY_OFFSETS.w, true);
-  }
-  set w(v) {
-    this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.w, v, true);
-  }
-
-  get h() {
-    return this.cs.dv.getUint16(this.index + CEREAL_ENTITY_OFFSETS.h, true);
-  }
-  set h(v) {
-    this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.h, v, true);
+  if (overlapX < overlapY) {
+    const directionX = centerDistanceX >= 0 ? 1 : -1;
+    const impulseX = overlapX * 0.5 * directionX;
+    entityA.vx += Math.round(impulseX * damper);
+    entityB.vx -= Math.round(impulseX * damper);
+  } else {
+    const directionY = centerDistanceY >= 0 ? 1 : -1;
+    const impulseY = overlapY * 0.5 * directionY;
+    entityA.vy += Math.round(impulseY * damper);
+    entityB.vy -= Math.round(impulseY * damper);
   }
 }
 
 class CerealSpace {
   constructor() {
-    this.maxEntities = 0x100000 >> 1;
+    this.maxEntities = CONFIG.CerealSpace.maxEntities;
     this.maxEntitiesBytes = this.maxEntities * BYTES_PER_BLOCK;
 
-    this.entityBuf = new ArrayBuffer(this.maxEntitiesBytes * 2);
+    this.entityBuf = new SharedArrayBuffer(this.maxEntitiesBytes * 2);
     this.entityU8 = new Uint8Array(this.entityBuf);
 
     this.dvA = new DataView(this.entityBuf, 0, this.maxEntitiesBytes);
@@ -124,13 +106,54 @@ class CerealSpace {
     for (let i = 0; i < this.maxEntities; i++) {
       this.freeIds[i] = i + 1;
     }
-    this.lastFreeId = this.maxEntities - 1;
+    this.nextFreeId = this.maxEntities - 1;
+    this.freeIdSpace = this.maxEntities;
 
     this.freeIndex = 0;
 
     this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._queryEntity = new CerealEntity(this, BYTES_PER_HEADER);
+    this.tick = 0;
+  }
+
+  addEntity() {
+    if (this.freeIndex === this.maxEntitiesBytes)
+      throw new Error(
+        `Cannot create entities past the maximum of ${this.maxEntities}`,
+      );
+    this.u8.fill(0, this.freeIndex, this.freeIndex + BYTES_PER_BLOCK);
+    const id = this.getNewId();
+    this.u32[(this.freeIndex >> 2) + CEREAL_U32_HEADER_OFFSETS.id] = id;
+    this.idToDataIndex[id] = this.freeIndex + BYTES_PER_HEADER;
+    this.freeIndex += BYTES_PER_BLOCK;
+    return this.freeIndex - BYTES_PER_ENTITY;
+  }
+
+  deleteEntity(dataIndex) {
+    const blockStart = dataIndex - BYTES_PER_HEADER;
+    const u32BlockStart = blockStart >> 2;
+    const lastBlockStart = this.freeIndex - BYTES_PER_BLOCK;
+
+    this.recycleOldId(this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id]);
+
+    if (blockStart !== lastBlockStart) {
+      this.u8.copyWithin(blockStart, lastBlockStart, this.freeIndex);
+      this.idToDataIndex[
+        this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id]
+      ] = blockStart + BYTES_PER_HEADER;
+    }
+
+    this.freeIndex -= BYTES_PER_BLOCK;
+  }
+
+  loopEntities(cb) {
+    for (let i = this.freeIndex / BYTES_PER_BLOCK - 1; i >= 0; i--) {
+      this._loopEntity.id =
+        this.u32[i * u32_PER_BLOCK + CEREAL_U32_HEADER_OFFSETS.id];
+      this._loopEntity.index = i * BYTES_PER_BLOCK + BYTES_PER_HEADER;
+      cb(this._loopEntity);
+    }
   }
 
   _swapSides() {
@@ -151,37 +174,6 @@ class CerealSpace {
     }
   }
 
-  addEntity() {
-    const blockStart = this.freeIndex;
-    this.u8.fill(0, blockStart, blockStart + BYTES_PER_BLOCK);
-    const id = this.freeIds[this.lastFreeId--];
-    this.dv.setUint32(blockStart + CEREAL_HEADER_OFFSETS.id, id, true);
-    const dataIndex = blockStart + BYTES_PER_HEADER;
-    this.idToDataIndex[id] = dataIndex;
-    this.freeIndex += BYTES_PER_BLOCK;
-    return dataIndex;
-  }
-
-  deleteEntity(dataIndex) {
-    const blockStart = dataIndex - BYTES_PER_HEADER;
-    const lastBlockStart = this.freeIndex - BYTES_PER_BLOCK;
-
-    this.lastFreeId++;
-    this.freeIds[this.lastFreeId] = this.dv.getUint32(
-      blockStart + CEREAL_HEADER_OFFSETS.id,
-      true,
-    );
-
-    if (blockStart !== lastBlockStart) {
-      this.u8.copyWithin(blockStart, lastBlockStart, this.freeIndex);
-      this.idToDataIndex[
-        this.dv.getUint32(blockStart + CEREAL_HEADER_OFFSETS.id, true)
-      ] = blockStart + BYTES_PER_HEADER;
-    }
-
-    this.freeIndex -= BYTES_PER_BLOCK;
-  }
-
   sort() {
     if (this.freeIndex <= BYTES_PER_BLOCK * 2) return;
     const blockCount = this.freeIndex / BYTES_PER_BLOCK;
@@ -197,7 +189,10 @@ class CerealSpace {
 
     // get keys, indices, and counts
     for (let i = 0; i < blockCount; i++) {
-      const pos = this.u32[i * u32_PER_BLOCK + 1];
+      const pos =
+        this.u32[
+          i * u32_PER_BLOCK + U32_PER_HEADER + CEREAL_U32_ENTITY_OFFSETS.px
+        ];
       const px = pos & 0xffff;
       const py = pos >>> 16;
       const key = (MORTON_LUT[px] | (MORTON_LUT[py] << 1)) >>> 0;
@@ -243,19 +238,61 @@ class CerealSpace {
       writeKeys[targetIndex] = key;
 
       this.idToDataIndex[
-        this.u32[originalIndex * u32_PER_BLOCK + CEREAL_HEADER_OFFSETS.id / 4]
+        this.u32[originalIndex * u32_PER_BLOCK + CEREAL_U32_HEADER_OFFSETS.id]
       ] = newEntityIndex + BYTES_PER_HEADER;
     }
     this._swapSides();
   }
 
+  getCollisions(entity, callback) {
+    const blockIndex = (entity.index - BYTES_PER_HEADER) / BYTES_PER_BLOCK;
+    const blockA32 = blockIndex * u32_PER_BLOCK;
+    const dataA32 = blockA32 + U32_PER_HEADER;
+
+    const posA = this.u32[dataA32 + CEREAL_U32_ENTITY_OFFSETS.px];
+    const ax1 = posA & 0xffff;
+    const ay1 = posA >>> 16;
+
+    const sizeA = this.u32[dataA32 + CEREAL_U32_ENTITY_OFFSETS.w];
+    const ax2 = ax1 + (sizeA & 0xffff);
+    const ay2 = ay1 + (sizeA >>> 16);
+
+    const keyCutoff =
+      (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
+
+    const maxItrs = CONFIG.CerealSpace.maxCollisionLoops;
+    const blockCount = this.freeIndex / BYTES_PER_BLOCK;
+    const end = Math.min(blockCount, blockIndex + maxItrs);
+    for (let b = blockIndex + 1; b < end; b++) {
+      if (this.mortonKeys[b] > keyCutoff) break;
+
+      const blockB32 = b * u32_PER_BLOCK;
+      const dataB32 = blockB32 + U32_PER_HEADER;
+
+      const posB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.px];
+      const bx1 = posB & 0xffff;
+      const by1 = posB >>> 16;
+
+      const sizeB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.w];
+      const bx2 = bx1 + (sizeB & 0xffff);
+      const by2 = by1 + (sizeB >>> 16);
+
+      if (ax1 <= bx2 && ax2 >= bx1 && ay1 <= by2 && ay2 >= by1) {
+        this._collisionEntity.index = b * BYTES_PER_BLOCK + BYTES_PER_HEADER;
+        this._collisionEntity.id =
+          this.u32[blockB32 + CEREAL_U32_HEADER_OFFSETS.id];
+        callback(entity, this._collisionEntity);
+      }
+    }
+  }
+
   query(x1, y1, x2, y2, callback, minIndex = 0) {
     if (this.freeIndex === 0) return;
 
-    x1 = x1 < 0 ? 0 : x1 > 65535 ? 65535 : x1 | 0;
-    y1 = y1 < 0 ? 0 : y1 > 65535 ? 65535 : y1 | 0;
-    x2 = x2 < 0 ? 0 : x2 > 65535 ? 65535 : x2 | 0;
-    y2 = y2 < 0 ? 0 : y2 > 65535 ? 65535 : y2 | 0;
+    x1 = Math.min(65535, Math.max(0, x1 | 0));
+    y1 = Math.min(65535, Math.max(0, y1 | 0));
+    x2 = Math.min(65535, Math.max(0, x2 | 0));
+    y2 = Math.min(65535, Math.max(0, y2 | 0));
 
     const kMin =
       (MORTON_LUT[x1 & 0xffff] | (MORTON_LUT[y1 & 0xffff] << 1)) >>> 0;
@@ -282,28 +319,19 @@ class CerealSpace {
       const bKey = this.mortonKeys[b];
       if (bKey > kMax) break;
 
-      const bBlockOffset = b * BYTES_PER_BLOCK;
-      const bDataOffset = bBlockOffset + BYTES_PER_HEADER;
-
-      const bx1 = this.dv.getUint16(
-        bDataOffset + CEREAL_ENTITY_OFFSETS.px,
-        true,
-      );
-      const by1 = this.dv.getUint16(
-        bDataOffset + CEREAL_ENTITY_OFFSETS.py,
-        true,
-      );
-      const bx2 =
-        bx1 + this.dv.getUint16(bDataOffset + CEREAL_ENTITY_OFFSETS.w, true);
-      const by2 =
-        by1 + this.dv.getUint16(bDataOffset + CEREAL_ENTITY_OFFSETS.h, true);
+      const blockB32 = b * u32_PER_BLOCK;
+      const dataB32 = blockB32 + U32_PER_HEADER;
+      const posB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.px];
+      const sizeB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.w];
+      const bx1 = posB & 0xffff;
+      const by1 = posB >>> 16;
+      const bx2 = bx1 + (sizeB & 0xffff);
+      const by2 = by1 + (sizeB >>> 16);
 
       if (x1 <= bx2 && x2 >= bx1 && y1 <= by2 && y2 >= by1) {
-        this._queryEntity.index = bDataOffset;
-        this._queryEntity.id = this.dv.getUint32(
-          bBlockOffset + CEREAL_HEADER_OFFSETS.id,
-          true,
-        );
+        this._queryEntity.index = b * BYTES_PER_BLOCK + BYTES_PER_HEADER;
+        this._queryEntity.id =
+          this.u32[blockB32 + CEREAL_U32_HEADER_OFFSETS.id];
 
         if (callback(this._queryEntity)) {
           return;
@@ -312,98 +340,13 @@ class CerealSpace {
     }
   }
 
-  getCollisions(entity, callback) {
-    const blockIndex = (entity.index - BYTES_PER_HEADER) / BYTES_PER_BLOCK;
-    const blockA32 = blockIndex * u32_PER_BLOCK;
-
-    const posA = this.u32[blockA32 + 1];
-    const ax1 = posA & 0xffff;
-    const ay1 = posA >>> 16;
-
-    const sizeA = this.u32[blockA32 + 4];
-    const ax2 = ax1 + (sizeA & 0xffff);
-    const ay2 = ay1 + (sizeA >>> 16);
-
-    const keyCutoff =
-      (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
-
-    const maxItrs = 1024;
-    const blockCount = this.freeIndex / BYTES_PER_BLOCK;
-    const end = Math.min(blockCount, blockIndex + maxItrs);
-    for (let b = blockIndex + 1; b < end; b++) {
-      if (this.mortonKeys[b] > keyCutoff) break;
-
-      const blockB32 = b * u32_PER_BLOCK;
-
-      const posB = this.u32[blockB32 + 1];
-      const bx1 = posB & 0xffff;
-      const by1 = posB >>> 16;
-
-      const sizeB = this.u32[blockB32 + 4];
-      const bx2 = bx1 + (sizeB & 0xffff);
-      const by2 = by1 + (sizeB >>> 16);
-
-      if (ax1 <= bx2 && ax2 >= bx1 && ay1 <= by2 && ay2 >= by1) {
-        this._collisionEntity.index = b * BYTES_PER_BLOCK + BYTES_PER_HEADER;
-        this._collisionEntity.id =
-          this.u32[blockB32 + CEREAL_HEADER_OFFSETS.id / 4];
-        callback(entity, this._collisionEntity);
-      }
-    }
+  getNewId() {
+    if (this.nextFreeId < 0) this.nextFreeId = --this.freeIdSpace;
+    return this.freeIds[this.nextFreeId--];
   }
 
-  loopEntities(cb) {
-    for (
-      let i = this.freeIndex - BYTES_PER_BLOCK;
-      i >= 0;
-      i -= BYTES_PER_BLOCK
-    ) {
-      this._loopEntity.id = this.dv.getUint32(
-        i + CEREAL_HEADER_OFFSETS.id,
-        true,
-      );
-      this._loopEntity.index = i + BYTES_PER_HEADER;
-      cb(this._loopEntity);
-    }
-  }
-
-  worldLoop() {
-    this.loopEntities((entity) => {
-      // Movement
-      movement(entity);
-      // Collision
-      this.getCollisions(entity, collide);
-    });
-    this.sort();
-  }
-}
-
-function movement(entity) {
-  if (entity.vx === 0 && entity.vy === 0) return;
-  entity.px += entity.vx;
-  entity.py += entity.vy;
-  entity.vx *= 0.8;
-  entity.vy *= 0.8;
-}
-function collide(entityA, entityB, damper = 1) {
-  const centerDistanceX =
-    entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
-  const centerDistanceY =
-    entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
-
-  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
-  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
-
-  if (overlapX < overlapY) {
-    const directionX = centerDistanceX >= 0 ? 1 : -1;
-    const impulseX = overlapX * 0.5 * directionX;
-    entityA.vx += Math.round(impulseX * damper);
-    entityB.vx -= Math.round(impulseX * damper);
-  } else {
-    const directionY = centerDistanceY >= 0 ? 1 : -1;
-    const impulseY = overlapY * 0.5 * directionY;
-    entityA.vy += Math.round(impulseY * damper);
-    entityB.vy -= Math.round(impulseY * damper);
+  recycleOldId(id) {
+    this.freeIds[this.freeIdSpace++] = id;
   }
 }
 
@@ -417,16 +360,4 @@ for (let i = 0; i < 65536; i++) {
   MORTON_LUT[i] = x;
 }
 
-// Util
-function parseOffsets(obj) {
-  const newObj = {};
-  let bytes = 0;
-  for (let key in obj) {
-    newObj[key] = bytes;
-    bytes += obj[key];
-  }
-  newObj._totalBytes = bytes;
-  return newObj;
-}
-
-export { CerealEntity, CerealSpace };
+export { CerealSpace, tickCerealSpace };
