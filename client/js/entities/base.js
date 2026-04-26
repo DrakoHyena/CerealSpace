@@ -4,16 +4,13 @@ const [CEREAL_ENTITY_OFFSETS, CEREAL_U32_ENTITY_OFFSETS] = generateOffsets({
   px: 2,
   py: 2,
   vx: 4,
-  bullshit: 4,
   vy: 4,
   w: 2,
   h: 2,
 });
 
 const [CEREAL_HEADER_OFFSETS, CEREAL_U32_HEADER_OFFSETS] = generateOffsets({
-  bullshit2: 1,
   id: 4,
-  bullshit3: 1,
 });
 
 const BYTES_PER_ENTITY = CEREAL_ENTITY_OFFSETS._totalBytes;

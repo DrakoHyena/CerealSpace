@@ -19,7 +19,6 @@ function generateOffsets(obj) {
       currentBytes = 4;
     }
   }
-  console.log(obj, currentBytes);
   if (currentBytes !== 4) {
     console.warn(`Offset not U32 aligned. Adding padding to compensate.`);
     obj[keys[values.length - 1]] = 4;

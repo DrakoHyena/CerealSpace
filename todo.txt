@@ -1,3 +1,4 @@
 - Render thread, Server thread
+  - Single buffer entity buf?
 - Networking (shareddarray for now..)
   - Views

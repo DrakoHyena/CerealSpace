@@ -142,6 +142,7 @@ class CerealSpace {
       this.idToDataIndex[
         this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id]
       ] = blockStart + BYTES_PER_HEADER;
+      this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id] = 0;
     }
 
     this.freeIndex -= BYTES_PER_BLOCK;

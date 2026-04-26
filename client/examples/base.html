@@ -7,23 +7,21 @@
 <body>
     <script defer type="module">
         import {CerealEntity} from "/js/entities/base.js";
-        import {CerealSpace, tickCerealSpace} from "/js/spaces/base.js";
-        import {CerealViewer} from "/js/clients/oldViewer.js";
+        import {CerealClient} from "/js/clients/base.js";
 
         const canvas = document.getElementById("canvas");
-        const cs = new CerealSpace();
-        const viewer = new CerealViewer(canvas, cs, tickCerealSpace);
-        viewer.setTool("1", "Spawn Entity", (pos) => {
-            for (let i = 0; i < viewer.spawnAmount; i++) {
-                let entity = new CerealEntity(cs, cs.addEntity());
-                entity.px = pos.x;
-                entity.py = pos.y;
-                entity.w = viewer.spawnSize;
-                entity.h = viewer.spawnSize;
-                entity.vx = (Math.random() - 0.5) * 2000;
-                entity.vy = (Math.random() - 0.5) * 2000;
+
+        let client;
+
+        let entityArray;
+        const serverWorker = new Worker("/js/servers/base.js", {type: "module"});
+        serverWorker.onmessage = (e) => {
+            if (e.data.array) {
+                entityArray = e.data.array
+                client = new CerealClient(canvas, serverWorker, entityArray)
             }
-        });
+        }
+
     </script>
     <canvas id="canvas"></canvas>
 </body>
