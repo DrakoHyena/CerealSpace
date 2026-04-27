@@ -14,11 +14,17 @@
         let client;
 
         let entityArray;
+        let controlArray;
         const serverWorker = new Worker("/js/servers/base.js", {type: "module"});
         serverWorker.onmessage = (e) => {
-            if (e.data.array) {
-                entityArray = e.data.array
-                client = new CerealClient(canvas, serverWorker, entityArray)
+            if (e.data.entityArray) {
+                entityArray = e.data.entityArray
+            }
+            if (e.data.controlArray) {
+                controlArray = e.data.controlArray
+            }
+            if (entityArray && controlArray) {
+                client = new CerealClient(canvas, serverWorker, entityArray, controlArray)
             }
         }
 

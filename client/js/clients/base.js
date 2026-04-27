@@ -2,20 +2,22 @@ import {
   BYTES_PER_BLOCK,
   BYTES_PER_HEADER,
   CEREAL_ENTITY_OFFSETS,
+  CEREAL_HEADER_OFFSETS,
 } from "/js/entities/base.js";
 import { CONFIG } from "/js/configs/base.js";
+import { SPACE_CONTROL_OFFSETS } from "/js/spaces/base.js";
 
 export class CerealClient {
-  constructor(canvas, serverWorker, buf) {
+  constructor(canvas, serverWorker, entityBuf, controlBuf) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     if (!this.canvas.hasAttribute("tabindex")) {
       this.canvas.setAttribute("tabindex", "0");
     }
     this.canvas.style.outline = "none";
-
     this.serverWorker = serverWorker;
-    this.buf = buf;
+    this.buf = entityBuf;
+    this.controlView = new DataView(controlBuf);
     this.dv = new DataView(this.buf);
 
     this.camera = {
@@ -51,8 +53,9 @@ export class CerealClient {
   setupTools() {
     this.setTool("1", "Spawn Entity", (pos) => {
       for (let i = 0; i < this.spawnAmount; i++) {
-        serverWorker.postMessage({
+        this.serverWorker.postMessage({
           type: "add",
+          amount: 1,
           px: pos.x,
           py: pos.y,
           w: this.spawnSize,
@@ -63,13 +66,13 @@ export class CerealClient {
       }
     });
 
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 2; i <= 7; i++) {
       this.setTool(i, "Nothing", (pos) => {});
     }
 
     this.setTool("8", "Delete", (pos) => {
       const size = this.spawnSize * 10;
-      serverWorker.postMessage({
+      this.serverWorker.postMessage({
         type: "delete",
         x1: pos.x - size,
         y1: pos.y - size,
@@ -78,43 +81,20 @@ export class CerealClient {
       });
     });
 
-    function applyForce(pos, direction) {
-      const radius = this.spawnSize * 10;
-      const strength = this.spawnSize;
-
-      this.cs.query(
-        pos.x - radius,
-        pos.y - radius,
-        pos.x + radius,
-        pos.y + radius,
-        (ent) => {
-          const dx = pos.x - (ent.px + ent.w / 2);
-          const dy = pos.y - (ent.py + ent.h / 2);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist > 0.1 * radius && dist < radius) {
-            const force = strength * (1 - dist / radius);
-            ent.vx += (dx / dist) * force * direction;
-            ent.vy += (dy / dist) * force * direction;
-          }
-          return false;
-        },
-      );
-    }
-
     this.setTool("9", "Push", (pos) => {
       this.serverWorker.postMessage({
         type: "force",
         dir: -1,
-        x: pos.x,
-        y: pos.y,
+        pos: pos,
+        size: this.spawnSize,
       });
     });
     this.setTool("0", "Pull", (pos) => {
       this.serverWorker.postMessage({
         type: "force",
         dir: 1,
-        x: pos.x,
-        y: pos.y,
+        pos: pos,
+        size: this.spawnSize,
       });
     });
   }
@@ -231,14 +211,20 @@ export class CerealClient {
 
     ctx.fillStyle = "grey";
 
+    const sideOffset =
+      this.controlView.getUint8(SPACE_CONTROL_OFFSETS.activeOffset) === 0
+        ? 0
+        : CONFIG.CerealSpace.maxEntities * BYTES_PER_BLOCK;
     const end =
-      CONFIG.CerealSpace.maxEntities * BYTES_PER_BLOCK - BYTES_PER_BLOCK;
-    for (let i = 0; i < end; i += BYTES_PER_BLOCK) {
+      sideOffset +
+      this.controlView.getUint32(SPACE_CONTROL_OFFSETS.entityAmount, true) *
+        BYTES_PER_BLOCK;
+    for (let i = sideOffset; i < end; i += BYTES_PER_BLOCK) {
       let offset = i + BYTES_PER_HEADER;
-      const x = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.px);
-      const y = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.py);
-      const w = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.w);
-      const h = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.h);
+      const x = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.px, true);
+      const y = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.py, true);
+      const w = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.w, true);
+      const h = this.dv.getUint16(offset + CEREAL_ENTITY_OFFSETS.h, true);
       ctx.fillRect(x, y, w, h);
     }
 

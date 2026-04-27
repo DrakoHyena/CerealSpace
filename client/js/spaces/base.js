@@ -14,6 +14,7 @@ import {
 } from "/js/entities/base.js";
 
 function tickCerealSpace(cs) {
+  let s = performance.now();
   cs.loopEntities((entity) => {
     // Movement
     movement(entity);
@@ -55,11 +56,19 @@ function collide(entityA, entityB, damper = 0.9) {
   }
 }
 
+const SPACE_CONTROL_OFFSETS = {
+  activeOffset: 0, // 1
+  entityAmount: 1, // 4
+  _totalBytes: 5,
+};
+
 class CerealSpace {
   constructor() {
     this.maxEntities = CONFIG.CerealSpace.maxEntities;
     this.maxEntitiesBytes = this.maxEntities * BYTES_PER_BLOCK;
 
+    this.controlBuf = new SharedArrayBuffer(SPACE_CONTROL_OFFSETS._totalBytes);
+    this.controlView = new DataView(this.controlBuf);
     this.entityBuf = new SharedArrayBuffer(this.maxEntitiesBytes * 2);
     this.entityU8 = new Uint8Array(this.entityBuf);
 
@@ -142,7 +151,6 @@ class CerealSpace {
       this.idToDataIndex[
         this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id]
       ] = blockStart + BYTES_PER_HEADER;
-      this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id] = 0;
     }
 
     this.freeIndex -= BYTES_PER_BLOCK;
@@ -164,6 +172,7 @@ class CerealSpace {
       this.u32 = this.u32B;
       this.i32 = this.i32B;
       this.mortonKeys = this.mortonKeysB;
+      this.controlView.setUint8(SPACE_CONTROL_OFFSETS.activeOffset, 1);
       this._activeSide = 1;
     } else {
       this.dv = this.dvA;
@@ -171,8 +180,14 @@ class CerealSpace {
       this.u32 = this.u32A;
       this.i32 = this.i32A;
       this.mortonKeys = this.mortonKeysA;
+      this.controlView.setUint8(SPACE_CONTROL_OFFSETS.activeOffset, 0);
       this._activeSide = 0;
     }
+    this.controlView.setUint32(
+      SPACE_CONTROL_OFFSETS.entityAmount,
+      this.freeIndex / BYTES_PER_BLOCK,
+      true,
+    );
   }
 
   sort() {
@@ -361,4 +376,4 @@ for (let i = 0; i < 65536; i++) {
   MORTON_LUT[i] = x;
 }
 
-export { CerealSpace, tickCerealSpace };
+export { CerealSpace, tickCerealSpace, SPACE_CONTROL_OFFSETS };
