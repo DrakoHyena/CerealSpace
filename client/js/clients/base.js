@@ -35,10 +35,7 @@ export class CerealClient {
     this.tools = {};
     this.repeatAmnt = 1;
 
-    this.perf = {
-      buffers: { world: [], tools: [], render: [] },
-      averages: { world: 0, tools: 0, render: 0 },
-    };
+    this.avgRender = 0;
 
     this.setupTools();
     this.initEvents();
@@ -183,23 +180,12 @@ export class CerealClient {
       requestAnimationFrame(tick);
     };
 
-    setInterval(() => {
-      const avg = (arr) =>
-        arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-      this.perf.averages.world = avg(this.perf.buffers.world);
-      this.perf.averages.tools = avg(this.perf.buffers.tools);
-      this.perf.averages.render = avg(this.perf.buffers.render);
-      this.perf.buffers.world = [];
-      this.perf.buffers.tools = [];
-      this.perf.buffers.render = [];
-    }, 1000);
-
     requestAnimationFrame(tick);
   }
 
   render(worldPos) {
-    const tR0 = performance.now();
-    const { ctx, canvas, camera, cs } = this;
+    const s = performance.now();
+    const { ctx, canvas, camera } = this;
 
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -233,8 +219,9 @@ export class CerealClient {
     }
 
     ctx.restore();
-    this.perf.buffers.render.push(performance.now() - tR0);
-    //    this.drawUI();
+    this.drawUI();
+    this.avgRender *= 0.95;
+    this.avgRender += 0.05 * (performance.now() - s);
   }
 
   drawToolIndicator(ctx, pos) {
@@ -258,7 +245,6 @@ export class CerealClient {
     ctx.stroke();
   }
   drawUI() {
-    const { averages } = this.perf;
     const ctx = this.ctx;
 
     const baseScale = Math.min(
@@ -291,27 +277,16 @@ export class CerealClient {
     const toolName = this.tools[this.currentToolKey]?.name || "Unknown";
     drawLine(`Tool: ${this.currentToolKey} - ${toolName}`);
     drawLine(`Size: ${this.spawnSize} | Amount: ${this.spawnAmount || 1}`);
-    drawLine(`Entities: ${this.cs.freeIndex / BYTES_PER_BLOCK}`);
+    drawLine(
+      `Entities: ${this.controlView.getUint32(SPACE_CONTROL_OFFSETS.entityAmount, true)}`,
+    );
 
     currY += 5 * uiScale;
 
-    const targetTime = 1000 / 33;
-
     drawLine(
-      `World: ${averages.world.toFixed(3)}ms (target: ${(targetTime - averages.render).toFixed(2)})`,
+      `World: ${this.controlView.getUint32(SPACE_CONTROL_OFFSETS.tickTime, true) / 100}ms (target: 33.33)`,
       "#00ff00",
     );
-    drawLine(`Tools: ${averages.tools.toFixed(3)}ms`, "#00ff00");
-    drawLine(
-      `Render : ${averages.render.toFixed(3)}ms (target: ${(targetTime - averages.world).toFixed(2)})`,
-      "#00ff00",
-    );
-
-    // Calc Slowdown
-    const totalTime = averages.world + averages.tools + averages.render;
-    const slowdown = (totalTime / (1000 / 30) - 1) * 100;
-    const slowColor = slowdown > 0 ? "#FF4444" : "#AAAAAA";
-
-    drawLine(`Est Slowdown: ${slowdown.toFixed(2)}%`, slowColor);
+    drawLine(`Render : ${this.avgRender.toFixed(3)}ms`, "#00ff00");
   }
 }

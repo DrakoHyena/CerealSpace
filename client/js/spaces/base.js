@@ -13,6 +13,8 @@ import {
   u32_PER_ENTITY,
 } from "/js/entities/base.js";
 
+let avgTick = 0;
+
 function tickCerealSpace(cs) {
   let s = performance.now();
   cs.loopEntities((entity) => {
@@ -23,6 +25,9 @@ function tickCerealSpace(cs) {
       cs.getCollisions(entity, collide);
   });
   if (cs.tick % CONFIG.CerealSpace.sortInterval === 0) cs.sort();
+  avgTick *= 0.95;
+  avgTick += 0.05 * (performance.now() - s);
+  cs.controlView.setUint32(SPACE_CONTROL_OFFSETS.tickTime, avgTick * 100, true);
   cs.tick++;
 }
 
@@ -59,7 +64,8 @@ function collide(entityA, entityB, damper = 0.9) {
 const SPACE_CONTROL_OFFSETS = {
   activeOffset: 0, // 1
   entityAmount: 1, // 4
-  _totalBytes: 5,
+  tickTime: 5, // 4
+  _totalBytes: 9,
 };
 
 class CerealSpace {
