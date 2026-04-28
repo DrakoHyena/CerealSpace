@@ -1,7 +1,9 @@
 const CONNECTOR_VER = 0;
+const SEND_BUF_SIZE = 2 ** 16;
 
 const PACKET_TYPES = {
-  _CEREAL_CONNECT: 0,
+  _CEREAL_DISCONNECT: 0,
+  _CEREAL_CONNECT: 1,
 };
 
 const CONNECTOR_OFFSETS = {
@@ -14,8 +16,12 @@ class CerealConnector {
     this.mode = mode; // "client"/"server"
     this.connections = new Set();
     this.onPacketFuncs = new Map();
+
     this.headerArr = new Uint8Array(CONNECTOR_OFFSETS._totalBytes);
     this.headerDv = new DataView(this.headerArr);
+
+    this.sendBuf = new Uint8Array(SEND_BUF_SIZE);
+    this.sendDv = new DataView(this.sendBuf);
   }
 
   addConnection(input) {
@@ -28,10 +34,31 @@ class CerealConnector {
     );
   }
 
-  sendPacket(type, data) {
+  _setUp() {
+    this.onPacket(PACKET_TYPES._CEREAL_DISCONNECT, (cnt, data, dv) => {
+      // TODO: String handling
+      console.log("Closed connection");
+      return;
+    });
+
+    this.onPacket(PACKET_TYPES._CEREAL_CONNECT, (cnt, data, dv) => {
+      const version = dv.getUint8(0, true);
+      if (version !== CONNECTOR_VER) {
+        console.warn("Connection has mismatched conncter versions");
+        this.sendPacket(PACKET_TYPES._CEREAL_DISCONNECT, data.slice(0, 0), cnt);
+        return;
+      }
+    });
+  }
+
+  sendPacket(type, data, targetCon) {
     const processedData = this._processSendData(type, data);
-    for (let cnt of this.connections) {
-      if (cnt._canSend()) cnt._send(processedData);
+    if (targetCon) {
+      if (targetCon._canSend()) targetCon._send(processedData);
+    } else {
+      for (let cnt of this.connections) {
+        if (cnt._canSend()) cnt._send(processedData);
+      }
     }
   }
 
@@ -51,10 +78,11 @@ class CerealConnector {
     return newBuf;
   }
 
-  _processReceiveData(data) {
+  _processReceiveData(cnt, data) {
     const dv = new DataView(data);
     const type = dv.getUint16(CONNECTOR_OFFSETS.packetType, true);
     const finalArr = data.subarray(CONNECTOR_OFFSETS._totalBytes);
+    const finalDv = new DataView(finalArr);
 
     let funcArr = this.onPacketFuncs.get(type);
     if (funcArr === undefined || funcArr.length === 0) {
@@ -64,9 +92,14 @@ class CerealConnector {
       return;
     } else {
       for (let func of funcArr) {
-        func(finalArr);
+        func(cnt, finalArr, finalDv);
       }
     }
+  }
+
+  removeConnection(cnt) {
+    cnt._close();
+    this.connections.delete(cnt);
   }
 
   _addWorker(worker) {
@@ -74,7 +107,8 @@ class CerealConnector {
       return true;
     };
     worker._send = worker.postMessage;
-    worker.onmessage = this._processReceiveData;
+    worker.onmessage = this._processReceiveData.bind(worker);
+    worker._close = worker.terminate;
     this.connections.add(worker);
   }
 }
