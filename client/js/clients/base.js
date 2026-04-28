@@ -1,3 +1,4 @@
+import { CerealConnector } from "/js/connectors/base.js";
 import {
   BYTES_PER_BLOCK,
   BYTES_PER_HEADER,
@@ -19,6 +20,8 @@ export class CerealClient {
     this.buf = entityBuf;
     this.controlView = new DataView(controlBuf);
     this.dv = new DataView(this.buf);
+    this.connector = new CerealConnector("client");
+    this.connector.addConnection(serverWorker);
 
     this.camera = {
       x: -((2 ** 16) >> 1),
