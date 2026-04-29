@@ -1,12 +1,20 @@
 import { CerealSpace, tickCerealSpace } from "/js/spaces/base.js";
 import { CerealEntity } from "/js/entities/base.js";
+import { CerealConnector, PACKET_TYPES, MODES } from "/js/connectors/base.js";
 
-const cs = new CerealSpace();
+const connector = new CerealConnector(MODES.SERVER);
+connector.addConnection(self);
+const cs = new CerealSpace(connector);
+
+connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
+  connector.sendPacket(PACKET_TYPES.SPACE_INFO, connector.BLANK_DATA, cnt);
+});
 
 setInterval(() => {
   tickCerealSpace(cs);
 }, 1000 / 30);
 
+/*
 function applyForce(pos, size, direction) {
   const radius = size * 10;
   const strength = size;
@@ -55,3 +63,4 @@ self.onmessage = (e) => {
 };
 
 self.postMessage({ entityArray: cs.entityBuf, controlArray: cs.controlBuf });
+*/
