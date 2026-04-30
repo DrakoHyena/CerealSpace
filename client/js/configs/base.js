@@ -26,6 +26,20 @@ const CONFIG = {
      * Lowering this value may improve performance on some devices
      */
     maxEntities: 200_000,
+
+    /*
+     * The area the entities have to exit
+     * Note: Entities can travel up to 65535 (0xffff)
+     * This acts as an early cut off before that point
+     */
+    width: 0xffff,
+    height: 0xffff,
+
+    /*
+     * Whether or not entities should wrap to the other side when hitting
+     * space borders or 0xffff
+     */
+    wrapping: true,
   },
 };
 

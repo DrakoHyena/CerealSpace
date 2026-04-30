@@ -1,2 +1,4 @@
-- Networking
-  - Views
+- Work on client
+  - Send entity data, strip headers
+  - Camera
+  - Input

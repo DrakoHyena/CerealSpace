@@ -18,6 +18,8 @@ let avgTick = 0;
 function tickCerealSpace(cs) {
   let s = performance.now();
   cs.loopEntities((entity) => {
+    // Engine
+    keepInBounds(cs, entity);
     // Movement
     movement(entity);
     // Collision
@@ -27,8 +29,8 @@ function tickCerealSpace(cs) {
   if (cs.tick % CONFIG.CerealSpace.sortInterval === 0) cs.sort();
   avgTick *= 0.95;
   avgTick += 0.05 * (performance.now() - s);
-  cs.controlView.setUint32(SPACE_CONTROL_OFFSETS.tickTime, avgTick * 100, true);
   cs.tick++;
+  cs._updateSpaceInfo();
 }
 
 function movement(entity) {
@@ -61,11 +63,23 @@ function collide(entityA, entityB, damper = 0.9) {
   }
 }
 
-const SPACE_CONTROL_OFFSETS = {
-  activeOffset: 0, // 1
-  entityAmount: 1, // 4
-  tickTime: 5, // 4
-  _totalBytes: 9,
+function keepInBounds(cs, ent) {
+  const xDiff = ent.px - cs.width;
+  const yDiff = ent.py + cs.height;
+  if (xDiff > 0) {
+    ent.px -= xDiff;
+  }
+  if (yDiff > 0) {
+    ent.py -= yDiff;
+  }
+}
+
+const SPACE_INFO_OFFSETS = {
+  width: 0, // 2
+  height: 2, // 2
+  entityAmount: 4, // 4
+  tickTime: 8, // 4
+  _totalBytes: 12,
 };
 
 class CerealSpace {
@@ -73,9 +87,13 @@ class CerealSpace {
     this.maxEntities = CONFIG.CerealSpace.maxEntities;
     this.maxEntitiesBytes = this.maxEntities * BYTES_PER_BLOCK;
 
-    this.controlBuf = new SharedArrayBuffer(SPACE_CONTROL_OFFSETS._totalBytes);
-    this.controlView = new DataView(this.controlBuf);
-    this.entityBuf = new SharedArrayBuffer(this.maxEntitiesBytes * 2);
+    this.width = CONFIG.CerealSpace.width;
+    this.height = CONFIG.CerealSpace.height;
+
+    this.spaceInfoBuf = new ArrayBuffer(SPACE_INFO_OFFSETS._totalBytes);
+    this.spaceInfoView = new DataView(this.spaceInfoBuf);
+
+    this.entityBuf = new ArrayBuffer(this.maxEntitiesBytes * 2);
     this.entityU8 = new Uint8Array(this.entityBuf);
 
     this.dvA = new DataView(this.entityBuf, 0, this.maxEntitiesBytes);
@@ -129,7 +147,9 @@ class CerealSpace {
     this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._queryEntity = new CerealEntity(this, BYTES_PER_HEADER);
+
     this.tick = 0;
+    this._updateSpaceInfo();
   }
 
   addEntity() {
@@ -178,7 +198,6 @@ class CerealSpace {
       this.u32 = this.u32B;
       this.i32 = this.i32B;
       this.mortonKeys = this.mortonKeysB;
-      this.controlView.setUint8(SPACE_CONTROL_OFFSETS.activeOffset, 1);
       this._activeSide = 1;
     } else {
       this.dv = this.dvA;
@@ -186,14 +205,8 @@ class CerealSpace {
       this.u32 = this.u32A;
       this.i32 = this.i32A;
       this.mortonKeys = this.mortonKeysA;
-      this.controlView.setUint8(SPACE_CONTROL_OFFSETS.activeOffset, 0);
       this._activeSide = 0;
     }
-    this.controlView.setUint32(
-      SPACE_CONTROL_OFFSETS.entityAmount,
-      this.freeIndex / BYTES_PER_BLOCK,
-      true,
-    );
   }
 
   sort() {
@@ -370,6 +383,21 @@ class CerealSpace {
   recycleOldId(id) {
     this.freeIds[this.freeIdSpace++] = id;
   }
+
+  _updateSpaceInfo() {
+    this.spaceInfoView.setUint16(SPACE_INFO_OFFSETS.width, this.width, true);
+    this.spaceInfoView.setUint16(SPACE_INFO_OFFSETS.height, this.height, true);
+    this.spaceInfoView.setUint32(
+      SPACE_INFO_OFFSETS.entityAmount,
+      this.freeIndex / BYTES_PER_BLOCK,
+      true,
+    );
+    this.spaceInfoView.setUint32(
+      SPACE_INFO_OFFSETS.tickTime,
+      avgTick * 100,
+      true,
+    );
+  }
 }
 
 const MORTON_LUT = new Uint32Array(65536);
@@ -382,4 +410,4 @@ for (let i = 0; i < 65536; i++) {
   MORTON_LUT[i] = x;
 }
 
-export { CerealSpace, tickCerealSpace, SPACE_CONTROL_OFFSETS };
+export { CerealSpace, tickCerealSpace, SPACE_INFO_OFFSETS };

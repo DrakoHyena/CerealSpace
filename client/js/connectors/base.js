@@ -17,6 +17,7 @@ const MODES = {
 
 const CACHE_MODES = {
   SPACE_INFO: MODES.SERVER,
+  ENTITIES: MODES.SERVER,
 };
 
 const CONNECTOR_OFFSETS = {
@@ -31,10 +32,11 @@ for (let key in CACHE_MODES) {
 class CerealConnection {
   constructor(cnt) {
     this.cnt = cnt;
-    this.enablePacketCaching = true;
     this.packetCache = {};
+
     this.diff = new Uint8Array(SEND_BUF_SIZE);
     this.diffView = new DataView(this.diff.buffer);
+
     this.canSend = () => {
       return true;
     };
@@ -52,8 +54,9 @@ class CerealConnection {
   }
   diffPacketAndCache(type, newPacket) {
     if (newPacket instanceof Uint8Array === false) {
-      throw new Error("Expected Uint8Array");
+      newPacket = new Uint8Array(newPacket);
     }
+
     if (this.packetCache[type] === undefined) {
       this.packetCache[type] = new Uint8Array(SEND_BUF_SIZE);
       this.packetCache[type].set(newPacket, 0);
@@ -150,9 +153,44 @@ class CerealConnector {
     this.sendU8 = new Uint8Array(this.sendBuf);
     this.sendDv = new DataView(this.sendBuf);
 
+    this.scratchBuf = new ArrayBuffer(SEND_BUF_SIZE);
+    this.scratchU8 = new Uint8Array(this.scratchBuf);
+
     this.BLANK_DATA = new ArrayBuffer();
 
     this._setUpDefaultHandlers();
+  }
+
+  sendPacket(type, data, cnt) {
+    if (cnt) {
+      if (cnt.canSend()) {
+        cnt.send(this._processSendData(type, data, cnt));
+      }
+    } else {
+      for (let cnt of this.connections) {
+        if (cnt.canSend()) {
+          cnt.send(this._processSendData(type, data, cnt));
+        }
+      }
+    }
+  }
+
+  onPacket(type, func) {
+    if (CACHE_MODES[type] === this.mode) {
+      throw new Error(
+        `Packet type "${type}" is mode "${this.mode}" authoritive. You cannot listen for it in mode "${this.mode}" as well.`,
+      );
+    }
+    if (this.onPacketFuncs.has(type)) {
+      this.onPacketFuncs.get(type).push(func);
+    } else {
+      this.onPacketFuncs.set(type, [func]);
+    }
+  }
+
+  removeConnection(cnt) {
+    cnt.close();
+    this.connections.delete(cnt);
   }
 
   addConnection(input) {
@@ -166,6 +204,17 @@ class CerealConnector {
     throw new Error(
       `Connection type "${typeof input}" is not supported! ${input}`,
     );
+  }
+
+  _addWorker(worker) {
+    const cc = new CerealConnection(worker);
+    cc.setCanSend(() => {
+      return true;
+    });
+    cc.setSend(worker.postMessage.bind(worker));
+    cc.setClose(worker.terminate);
+    worker.onmessage = this._processReceiveData.bind(this, cc);
+    this.connections.add(cc);
   }
 
   _setUpDefaultHandlers() {
@@ -183,10 +232,10 @@ class CerealConnector {
       const version = dv.getUint16(0, true);
       if (version !== CONNECTOR_VER) {
         console.warn("Connection has mismatched connecter versions");
-        const slice = this.sendU8.slice(
+        const slice = this.scratchU8.slice(
           0,
           addString(
-            this.sendBuf,
+            this.scratchBuf,
             `Connection version mismatch! You: V${version} Target: V${CONNECTOR_VER}`,
             0,
           ),
@@ -223,34 +272,11 @@ class CerealConnector {
     });
   }
 
-  sendPacket(type, data, cnt) {
-    if (cnt) {
-      if (cnt.canSend()) {
-        cnt.send(this._processSendData(type, data, cnt));
-      }
-    } else {
-      for (let cnt of this.connections) {
-        if (cnt.canSend()) {
-          cnt.send(this._processSendData(type, data, cnt));
-        }
-      }
-    }
-  }
-
-  onPacket(type, func) {
-    if (CACHE_MODES[type] === this.mode) {
-      throw new Error(
-        `Packet type "${type}" is mode "${this.mode}" authoritive. You cannot listen for it in mode "${this.mode}" as well.`,
-      );
-    }
-    if (this.onPacketFuncs.has(type)) {
-      this.onPacketFuncs.get(type).push(func);
-    } else {
-      this.onPacketFuncs.set(type, [func]);
-    }
-  }
-
   _processSendData(type, data, cnt) {
+    if (data instanceof Uint8Array === false) {
+      data = new Uint8Array(data);
+    }
+
     const diffPacket =
       CACHE_MODES[type] === this.mode
         ? cnt.diffPacketAndCache(type, data)
@@ -258,9 +284,9 @@ class CerealConnector {
     if (diffPacket === false) {
       // Actual packet
       this.headerDv.setUint16(CONNECTOR_OFFSETS.packetType, type, true);
-      this.sendU8.set(this.headerU8, 0);
-      this.sendU8.set(data, this.headerU8.byteLength);
-      return this.sendU8.subarray(
+      this.scratchU8.set(this.headerU8, 0);
+      this.scratchU8.set(data, this.headerU8.byteLength);
+      return this.scratchU8.subarray(
         0,
         this.headerArr.byteLength + data.byteLength,
       );
@@ -271,9 +297,9 @@ class CerealConnector {
         PACKET_TYPES.CACHE_UPDATE,
         true,
       );
-      this.sendU8.set(this.headerU8, 0);
-      this.sendU8.set(diffPacket, this.headerU8.byteLength);
-      return this.sendU8.subarray(
+      this.scratchU8.set(this.headerU8, 0);
+      this.scratchU8.set(diffPacket, this.headerU8.byteLength);
+      return this.scratchU8.subarray(
         0,
         this.headerArr.byteLength + diffPacket.byteLength,
       );
@@ -290,7 +316,6 @@ class CerealConnector {
       finalArr.byteOffset,
       finalArr.byteLength,
     );
-
     if (CACHE_MODES[type] !== undefined && CACHE_MODES[type] !== this.mode) {
       if (cnt.packetCache[type] === undefined) {
         cnt.packetCache[type] = new Uint8Array(SEND_BUF_SIZE);
@@ -298,7 +323,6 @@ class CerealConnector {
       cnt.packetCache[type].set(finalArr, 0);
       cnt.packetCache[type]._packetLength = finalArr.byteLength;
     }
-
     let funcArr = this.onPacketFuncs.get(type);
     if (funcArr === undefined || funcArr.length === 0) {
       console.warn(
@@ -310,22 +334,6 @@ class CerealConnector {
         func(cnt, finalArr, finalDv);
       }
     }
-  }
-
-  removeConnection(cnt) {
-    cnt.close();
-    this.connections.delete(cnt);
-  }
-
-  _addWorker(worker) {
-    const cc = new CerealConnection(worker);
-    cc.setCanSend(() => {
-      return true;
-    });
-    cc.setSend(worker.postMessage.bind(worker));
-    cc.setClose(worker.terminate);
-    worker.onmessage = this._processReceiveData.bind(this, cc);
-    this.connections.add(cc);
   }
 }
 

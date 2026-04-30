@@ -6,13 +6,14 @@ const connector = new CerealConnector(MODES.SERVER);
 const connection = connector.addConnection(self);
 const cs = new CerealSpace(connector);
 
-for (let i = 0; i < 10; i++) {
-  let a = new Uint8Array(256);
-  for (let b = 0; b < a.byteLength; b++) a[b] = (Math.random() * 10) | 0;
-  connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
-    connector.sendPacket(PACKET_TYPES.SPACE_INFO, a, cnt);
-  });
-}
+connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
+  connector.sendPacket(PACKET_TYPES.SPACE_INFO, cs.spaceInfoBuf, cnt);
+});
+
+setInterval(() => {
+  connector.sendPacket(PACKET_TYPES.SPACE_INFO, cs.spaceInfoBuf);
+}, 1000 / 2);
+
 setInterval(() => {
   tickCerealSpace(cs);
 }, 1000 / 30);
