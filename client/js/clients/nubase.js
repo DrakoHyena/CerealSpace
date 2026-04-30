@@ -12,13 +12,13 @@ class CerealClient {
 
     this.serverWorker = serverWorker;
     this.connector = new CerealConnector(MODES.CLIENT);
-    this.connector.addConnection(this.serverWorker);
+    this.connection = this.connector.addConnection(this.serverWorker);
     this._setUpPackets();
     this.connector.sendDv.setUint16(0, CONNECTOR_VER, true);
     this.connector.sendPacket(
       PACKET_TYPES.CONNECT,
       this.connector.sendBuf.slice(0, 2),
-      this.serverWorker,
+      this.connection,
     );
   }
   _setUpPackets() {

@@ -1,12 +1,22 @@
 const CONNECTOR_VER = 0;
-const SEND_BUF_SIZE = 2 ** 16;
+const SEND_BUF_SIZE = 0xffff;
 
 const PACKET_TYPES = {
   DISCONNECT: 0,
   CONNECT: 1,
   OPEN: 2,
-  SPACE_INFO: 3,
-  ENTITIES: 4,
+  CACHE_UPDATE: 3,
+  SPACE_INFO: 4,
+  ENTITIES: 5,
+};
+
+const MODES = {
+  SERVER: 0,
+  CLIENT: 1,
+};
+
+const CACHE_MODES = {
+  SPACE_INFO: MODES.SERVER,
 };
 
 const CONNECTOR_OFFSETS = {
@@ -14,10 +24,117 @@ const CONNECTOR_OFFSETS = {
   _totalBytes: 2,
 };
 
-const MODES = {
-  SERVER: 0,
-  CLIENT: 1,
-};
+for (let key in CACHE_MODES) {
+  CACHE_MODES[PACKET_TYPES[key]] = CACHE_MODES[key];
+}
+
+class CerealConnection {
+  constructor(cnt) {
+    this.cnt = cnt;
+    this.enablePacketCaching = true;
+    this.packetCache = {};
+    this.diff = new Uint8Array(SEND_BUF_SIZE);
+    this.diffView = new DataView(this.diff.buffer);
+    this.canSend = () => {
+      return true;
+    };
+    this.send = () => {};
+    this.close = () => {};
+  }
+  setCanSend(func) {
+    this.canSend = func;
+  }
+  setSend(func) {
+    this.send = func;
+  }
+  setClose(func) {
+    this.close = func;
+  }
+  diffPacketAndCache(type, newPacket) {
+    if (newPacket instanceof Uint8Array === false) {
+      throw new Error("Expected Uint8Array");
+    }
+    if (this.packetCache[type] === undefined) {
+      this.packetCache[type] = new Uint8Array(SEND_BUF_SIZE);
+      this.packetCache[type].set(newPacket, 0);
+      this.packetCache[type]._packetLength = newPacket.byteLength;
+      return false;
+    }
+
+    const cachePacket = this.packetCache[type];
+    const cacheLength = this.packetCache[type]._packetLength;
+    let dvIndex = 2;
+    const dv = this.diffView;
+    dv.setUint16(0, type, true);
+    const MAX_GAP = 4;
+    let gap = 0;
+    let startIndex = -1;
+    for (let i = 0; i < cacheLength; i++) {
+      if (cachePacket[i] !== newPacket[i]) {
+        if (startIndex === -1) {
+          startIndex = i;
+        }
+        gap = 0;
+      } else {
+        if (startIndex !== -1) {
+          gap++;
+          if (gap === MAX_GAP) {
+            const endIndex = i - gap + 1;
+            const chunkLen = endIndex - startIndex;
+
+            dv.setUint16(dvIndex, startIndex, true);
+            dvIndex += 2;
+            dv.setUint16(dvIndex, chunkLen, true);
+            dvIndex += 2;
+            this.diff.set(newPacket.subarray(startIndex, endIndex), dvIndex);
+            dvIndex += chunkLen;
+
+            startIndex = -1;
+            gap = 0;
+          }
+        }
+      }
+    }
+    if (startIndex !== -1) {
+      const endIndex = cacheLength - gap;
+      const chunkLen = endIndex - startIndex;
+
+      if (chunkLen > 0) {
+        dv.setUint16(dvIndex, startIndex, true);
+        dvIndex += 2;
+        dv.setUint16(dvIndex, chunkLen, true);
+        dvIndex += 2;
+        this.diff.set(newPacket.subarray(startIndex, endIndex), dvIndex);
+        dvIndex += chunkLen;
+      }
+    }
+
+    cachePacket.set(newPacket, 0);
+    cachePacket._packetLength = newPacket.byteLength;
+    return this.diff.subarray(0, dvIndex);
+  }
+  applyDiffAndCache(diffPacket, dv) {
+    let i = 0;
+    const type = dv.getUint16(i, true);
+    i += 2;
+    const cachePacket = this.packetCache[type];
+    if (cachePacket === undefined) {
+      throw new Error(
+        `No packet cache created for type "${type}" on connection "${this}"`,
+      );
+    }
+
+    while (i < diffPacket.byteLength) {
+      const index = dv.getUint16(i, true);
+      i += 2;
+      const len = dv.getUint16(i, true);
+      i += 2;
+      cachePacket.set(diffPacket.subarray(i, i + len), index);
+      i += len;
+    }
+    return [type, cachePacket];
+  }
+}
 
 class CerealConnector {
   constructor(mode) {
@@ -33,7 +150,7 @@ class CerealConnector {
     this.sendU8 = new Uint8Array(this.sendBuf);
     this.sendDv = new DataView(this.sendBuf);
 
-    this.BLANK_DATA = new ArrayBuffer(0);
+    this.BLANK_DATA = new ArrayBuffer();
 
     this._setUpDefaultHandlers();
   }
@@ -83,20 +200,49 @@ class CerealConnector {
       // Not required, the server is expected to be open after a verified connection... but polite
       this.sendPacket(PACKET_TYPES.OPEN, this.BLANK_DATA, cnt);
     });
+
+    this.onPacket(PACKET_TYPES.CACHE_UPDATE, (cnt, data, dv) => {
+      const [type, newPacket] = cnt.applyDiffAndCache(data, dv);
+      const newDv = new DataView(
+        newPacket.buffer,
+        newPacket.byteOffset,
+        newPacket.byteLength,
+      );
+
+      let funcArr = this.onPacketFuncs.get(type);
+      if (funcArr === undefined || funcArr.length === 0) {
+        console.warn(
+          `(${this.mode}) There are no receivers for packet type "${type}"`,
+        );
+        return;
+      } else {
+        for (let func of funcArr) {
+          func(cnt, newPacket, newDv);
+        }
+      }
+    });
   }
 
-  sendPacket(type, data, targetCon) {
-    const processedData = this._processSendData(type, data);
-    if (targetCon) {
-      if (targetCon._canSend()) targetCon._send(processedData);
+  sendPacket(type, data, cnt) {
+    if (cnt) {
+      if (cnt.canSend()) {
+        cnt.send(this._processSendData(type, data, cnt));
+      }
     } else {
       for (let cnt of this.connections) {
-        if (cnt._canSend()) cnt._send(processedData);
+        if (cnt.canSend()) {
+          cnt.send(this._processSendData(type, data, cnt));
+        }
       }
     }
   }
 
   onPacket(type, func) {
+    if (CACHE_MODES[type] === this.mode) {
+      throw new Error(
+        `Packet type "${type}" is mode "${this.mode}" authoritive. You cannot listen for it in mode "${this.mode}" as well.`,
+      );
+    }
     if (this.onPacketFuncs.has(type)) {
       this.onPacketFuncs.get(type).push(func);
     } else {
@@ -104,25 +250,54 @@ class CerealConnector {
     }
   }
 
-  _processSendData(type, data) {
-    this.headerDv.setUint16(CONNECTOR_OFFSETS.packetType, type, true);
-
-    this.sendU8.set(this.headerU8, 0);
-    this.sendU8.set(data, this.headerU8.byteLength);
-    return this.sendU8.subarray(0, this.headerArr.byteLength + data.byteLength);
+  _processSendData(type, data, cnt) {
+    const diffPacket =
+      CACHE_MODES[type] === this.mode
+        ? cnt.diffPacketAndCache(type, data)
+        : false;
+    if (diffPacket === false) {
+      // Actual packet
+      this.headerDv.setUint16(CONNECTOR_OFFSETS.packetType, type, true);
+      this.sendU8.set(this.headerU8, 0);
+      this.sendU8.set(data, this.headerU8.byteLength);
+      return this.sendU8.subarray(
+        0,
+        this.headerArr.byteLength + data.byteLength,
+      );
+    } else {
+      // Update cache packet
+      this.headerDv.setUint16(
+        CONNECTOR_OFFSETS.packetType,
+        PACKET_TYPES.CACHE_UPDATE,
+        true,
+      );
+      this.sendU8.set(this.headerU8, 0);
+      this.sendU8.set(diffPacket, this.headerU8.byteLength);
+      return this.sendU8.subarray(
+        0,
+        this.headerArr.byteLength + diffPacket.byteLength,
+      );
+    }
   }
 
   _processReceiveData(cnt, e) {
     const data = e.data;
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const type = dv.getUint16(CONNECTOR_OFFSETS.packetType, true);
-
     const finalArr = data.subarray(CONNECTOR_OFFSETS._totalBytes);
     const finalDv = new DataView(
       finalArr.buffer,
       finalArr.byteOffset,
       finalArr.byteLength,
     );
+
+    if (CACHE_MODES[type] !== undefined && CACHE_MODES[type] !== this.mode) {
+      if (cnt.packetCache[type] === undefined) {
+        cnt.packetCache[type] = new Uint8Array(SEND_BUF_SIZE);
+      }
+      cnt.packetCache[type].set(finalArr, 0);
+      cnt.packetCache[type]._packetLength = finalArr.byteLength;
+    }
 
     let funcArr = this.onPacketFuncs.get(type);
     if (funcArr === undefined || funcArr.length === 0) {
@@ -138,18 +313,19 @@ class CerealConnector {
   }
 
   removeConnection(cnt) {
-    cnt._close();
+    cnt.close();
     this.connections.delete(cnt);
   }
 
   _addWorker(worker) {
-    worker._canSend = () => {
+    const cc = new CerealConnection(worker);
+    cc.setCanSend(() => {
       return true;
-    };
-    worker._send = worker.postMessage;
-    worker.onmessage = this._processReceiveData.bind(this, worker);
-    worker._close = worker.close;
-    this.connections.add(worker);
+    });
+    cc.setSend(worker.postMessage.bind(worker));
+    cc.setClose(worker.terminate);
+    worker.onmessage = this._processReceiveData.bind(this, cc);
+    this.connections.add(cc);
   }
 }
 

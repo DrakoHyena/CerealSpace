@@ -3,13 +3,16 @@ import { CerealEntity } from "/js/entities/base.js";
 import { CerealConnector, PACKET_TYPES, MODES } from "/js/connectors/base.js";
 
 const connector = new CerealConnector(MODES.SERVER);
-connector.addConnection(self);
+const connection = connector.addConnection(self);
 const cs = new CerealSpace(connector);
 
-connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
-  connector.sendPacket(PACKET_TYPES.SPACE_INFO, connector.BLANK_DATA, cnt);
-});
-
+for (let i = 0; i < 10; i++) {
+  let a = new Uint8Array(256);
+  for (let b = 0; b < a.byteLength; b++) a[b] = (Math.random() * 10) | 0;
+  connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
+    connector.sendPacket(PACKET_TYPES.SPACE_INFO, a, cnt);
+  });
+}
 setInterval(() => {
   tickCerealSpace(cs);
 }, 1000 / 30);
