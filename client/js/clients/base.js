@@ -162,12 +162,6 @@ export class CerealClient {
     window.addEventListener("resize", () => this.resize());
   }
 
-  resize() {
-    this.canvas.width = this.canvas.clientWidth || window.innerWidth;
-    this.canvas.height = this.canvas.clientHeight || window.innerHeight;
-    this.ctx.imageSmoothingEnabled = false;
-  }
-
   startLoops() {
     const tick = () => {
       const worldPos = this.screenToWorld(

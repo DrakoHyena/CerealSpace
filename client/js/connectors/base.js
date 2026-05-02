@@ -7,7 +7,8 @@ const PACKET_TYPES = {
   OPEN: 2,
   CACHE_UPDATE: 3,
   SPACE_INFO: 4,
-  ENTITIES: 5,
+  CONTROLS: 5,
+  ENTITIES: 6,
 };
 
 const MODES = {
@@ -25,6 +26,13 @@ const CONNECTOR_OFFSETS = {
   _totalBytes: 2,
 };
 
+const STATUS = {
+  DISCONNECTED: 0,
+  CONNECTING: 1,
+  CONNECTED: 2,
+  OPEN: 3,
+};
+
 for (let key in CACHE_MODES) {
   CACHE_MODES[PACKET_TYPES[key]] = CACHE_MODES[key];
 }
@@ -33,6 +41,8 @@ class CerealConnection {
   constructor(cnt) {
     this.cnt = cnt;
     this.packetCache = {};
+
+    this.status = STATUS.CONNECTING;
 
     this.diff = new Uint8Array(SEND_BUF_SIZE);
     this.diffView = new DataView(this.diff.buffer);
@@ -44,7 +54,13 @@ class CerealConnection {
     this.close = () => {};
   }
   setCanSend(func) {
-    this.canSend = func;
+    this.canSend = () => {
+      if (this.status !== STATUS.OPEN) {
+        console.warn("Connection is not open, dropping data.");
+        return;
+      }
+      return func;
+    };
   }
   setSend(func) {
     this.send = func;
@@ -66,13 +82,14 @@ class CerealConnection {
 
     const cachePacket = this.packetCache[type];
     const cacheLength = this.packetCache[type]._packetLength;
+    const loopLen = Math.max(cacheLength, newPacket.byteLength);
     let dvIndex = 2;
     const dv = this.diffView;
     dv.setUint16(0, type, true);
     const MAX_GAP = 4;
     let gap = 0;
     let startIndex = -1;
-    for (let i = 0; i < cacheLength; i++) {
+    for (let i = 0; i < loopLen; i++) {
       if (cachePacket[i] !== newPacket[i]) {
         if (startIndex === -1) {
           startIndex = i;
@@ -155,20 +172,27 @@ class CerealConnector {
 
     this.scratchBuf = new ArrayBuffer(SEND_BUF_SIZE);
     this.scratchU8 = new Uint8Array(this.scratchBuf);
+    this.scratchDv = new DataView(this.scratchBuf);
 
     this.BLANK_DATA = new ArrayBuffer();
 
     this._setUpDefaultHandlers();
   }
 
-  sendPacket(type, data, cnt) {
+  sendPacket(type, data, cnt, connectedCheck) {
     if (cnt) {
-      if (cnt.canSend()) {
+      if (
+        cnt.status === STATUS.OPEN ||
+        (connectedCheck && cnt.status === STATUS.CONNECTED)
+      ) {
         cnt.send(this._processSendData(type, data, cnt));
       }
     } else {
       for (let cnt of this.connections) {
-        if (cnt.canSend()) {
+        if (
+          cnt.status === STATUS.OPEN ||
+          (connectedCheck && cnt.status === STATUS.CONNECTED)
+        ) {
           cnt.send(this._processSendData(type, data, cnt));
         }
       }
@@ -189,8 +213,15 @@ class CerealConnector {
   }
 
   removeConnection(cnt) {
-    cnt.close();
-    this.connections.delete(cnt);
+    const buf = this.scratchU8.slice(
+      0,
+      addString(this.scratchBuf, "removeConnection called", 0),
+    );
+    const dv = new DataView(buf);
+    let funcArr = this.onPacketFuncs.get(PACKET_TYPES.DISCONNECT);
+    for (let func of funcArr) {
+      func(cnt, buf, dv);
+    }
   }
 
   addConnection(input) {
@@ -198,8 +229,7 @@ class CerealConnector {
       input instanceof Worker ||
       input instanceof DedicatedWorkerGlobalScope
     ) {
-      this._addWorker(input);
-      return;
+      return this._addWorker(input);
     }
     throw new Error(
       `Connection type "${typeof input}" is not supported! ${input}`,
@@ -208,6 +238,7 @@ class CerealConnector {
 
   _addWorker(worker) {
     const cc = new CerealConnection(worker);
+    cc.status = STATUS.CONNECTED;
     cc.setCanSend(() => {
       return true;
     });
@@ -215,11 +246,14 @@ class CerealConnector {
     cc.setClose(worker.terminate);
     worker.onmessage = this._processReceiveData.bind(this, cc);
     this.connections.add(cc);
+    return cc;
   }
 
   _setUpDefaultHandlers() {
     this.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
-      this.removeConnection(cnt);
+      cnt.status = STATUS.DISCONNECTED;
+      cnt.close();
+      this.connections.delete(cnt);
       console.log(
         this.mode,
         "Connection closed. Reason:",
@@ -240,14 +274,17 @@ class CerealConnector {
             0,
           ),
         );
-        this.sendPacket(PACKET_TYPES.DISCONNECT, slice, cnt);
+        this.sendPacket(PACKET_TYPES.DISCONNECT, slice, cnt, true);
         return;
       }
 
       // Do pre-game stuff like assets here...
 
-      // Not required, the server is expected to be open after a verified connection... but polite
-      this.sendPacket(PACKET_TYPES.OPEN, this.BLANK_DATA, cnt);
+      this.sendPacket(PACKET_TYPES.OPEN, this.BLANK_DATA, cnt, true);
+    });
+
+    this.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
+      cnt.status = STATUS.OPEN;
     });
 
     this.onPacket(PACKET_TYPES.CACHE_UPDATE, (cnt, data, dv) => {
@@ -276,7 +313,6 @@ class CerealConnector {
     if (data instanceof Uint8Array === false) {
       data = new Uint8Array(data);
     }
-
     const diffPacket =
       CACHE_MODES[type] === this.mode
         ? cnt.diffPacketAndCache(type, data)
@@ -316,6 +352,7 @@ class CerealConnector {
       finalArr.byteOffset,
       finalArr.byteLength,
     );
+
     if (CACHE_MODES[type] !== undefined && CACHE_MODES[type] !== this.mode) {
       if (cnt.packetCache[type] === undefined) {
         cnt.packetCache[type] = new Uint8Array(SEND_BUF_SIZE);
@@ -364,4 +401,11 @@ function parseString(buf, index) {
   return str;
 }
 
-export { CerealConnector, PACKET_TYPES, CONNECTOR_VER, MODES };
+export {
+  CerealConnector,
+  PACKET_TYPES,
+  CONNECTOR_VER,
+  MODES,
+  SEND_BUF_SIZE,
+  STATUS,
+};
