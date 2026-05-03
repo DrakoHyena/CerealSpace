@@ -8,7 +8,7 @@ const PACKET_TYPES = {
   CACHE_UPDATE: 3,
   SPACE_INFO: 4,
   CONTROLS: 5,
-  ENTITIES: 6,
+  VIEW: 6,
 };
 
 const MODES = {
@@ -18,7 +18,7 @@ const MODES = {
 
 const CACHE_MODES = {
   SPACE_INFO: MODES.SERVER,
-  ENTITIES: MODES.SERVER,
+  VIEW: MODES.SERVER,
 };
 
 const CONNECTOR_OFFSETS = {
@@ -33,6 +33,9 @@ const STATUS = {
   OPEN: 3,
 };
 
+for (let key in PACKET_TYPES) {
+  PACKET_TYPES[PACKET_TYPES[key]] = key;
+}
 for (let key in CACHE_MODES) {
   CACHE_MODES[PACKET_TYPES[key]] = CACHE_MODES[key];
 }
@@ -200,6 +203,11 @@ class CerealConnector {
   }
 
   onPacket(type, func) {
+    if (typeof type !== "number" || PACKET_TYPES[type] === undefined) {
+      throw new Error(
+        `Packet type "${type}" is not a valid packet type and cannot be listened for.`,
+      );
+    }
     if (CACHE_MODES[type] === this.mode) {
       throw new Error(
         `Packet type "${type}" is mode "${this.mode}" authoritive. You cannot listen for it in mode "${this.mode}" as well.`,
@@ -243,7 +251,9 @@ class CerealConnector {
       return true;
     });
     cc.setSend(worker.postMessage.bind(worker));
-    cc.setClose(worker.terminate);
+    cc.setClose(
+      this.mode === MODES.CLIENT ? worker.terminate.bind(worker) : () => {},
+    );
     worker.onmessage = this._processReceiveData.bind(this, cc);
     this.connections.add(cc);
     return cc;

@@ -34,6 +34,7 @@ function tickCerealSpace(cs) {
 }
 
 function movement(entity) {
+  entity.px += 1;
   if (entity.vx === 0 && entity.vy === 0) return;
   entity.px += entity.vx;
   entity.py += entity.vy;
@@ -170,7 +171,9 @@ class CerealSpace {
     const u32BlockStart = blockStart >> 2;
     const lastBlockStart = this.freeIndex - BYTES_PER_BLOCK;
 
-    this.recycleOldId(this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id]);
+    const oldId = this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id];
+    this.idToDataIndex[oldId] = 1; // impossible state, so dead
+    this.recycleOldId(oldId);
 
     if (blockStart !== lastBlockStart) {
       this.u8.copyWithin(blockStart, lastBlockStart, this.freeIndex);
@@ -210,8 +213,15 @@ class CerealSpace {
   }
 
   sort() {
-    if (this.freeIndex <= BYTES_PER_BLOCK * 2) return;
     const blockCount = this.freeIndex / BYTES_PER_BLOCK;
+    if (blockCount === 0) return;
+    if (blockCount === 1) {
+      const pos = this.u32[U32_PER_HEADER + CEREAL_U32_ENTITY_OFFSETS.px];
+      const px = pos & 0xffff;
+      const py = pos >>> 16;
+      this.mortonKeys[0] = (MORTON_LUT[px] | (MORTON_LUT[py] << 1)) >>> 0;
+      return;
+    }
 
     const readKeys = this.mortonKeys;
     const writeKeys =
@@ -321,7 +331,7 @@ class CerealSpace {
     }
   }
 
-  query(x1, y1, x2, y2, callback, minIndex = 0) {
+  query(x1, y1, x2, y2, callback, minIndex = 0, getSubArr) {
     if (this.freeIndex === 0) return;
 
     x1 = Math.min(65535, Math.max(0, x1 | 0));
@@ -348,6 +358,31 @@ class CerealSpace {
       } else {
         low = mid + 1;
       }
+    }
+
+    if (getSubArr) {
+      // If no keys are >= kMin, or the first valid key is already > kMax, return empty
+      if (startBlock > totalBlocks || this.mortonKeys[startBlock] > kMax) {
+        return new Uint8Array(0);
+      }
+
+      // Find ending block (Last index where key <= kMax)
+      let endBlock = startBlock;
+      let eLow = startBlock;
+      let eHigh = totalBlocks - 1;
+      while (eLow <= eHigh) {
+        const mid = (eLow + eHigh) >>> 1;
+        if (this.mortonKeys[mid] <= kMax) {
+          endBlock = mid;
+          eLow = mid + 1;
+        } else {
+          eHigh = mid - 1;
+        }
+      }
+      return this.u8.subarray(
+        startBlock * BYTES_PER_BLOCK,
+        (endBlock + 1) * BYTES_PER_BLOCK,
+      );
     }
 
     for (let b = startBlock; b < totalBlocks; b++) {

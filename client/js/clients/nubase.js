@@ -6,7 +6,8 @@ import {
   SEND_BUF_SIZE,
 } from "/js/connectors/base.js";
 import { SPACE_INFO_OFFSETS } from "/js/spaces/base.js";
-import { BYTES_PER_ENTITY } from "/js/entities/base.js";
+import { CerealEntity, BYTES_PER_ENTITY } from "/js/entities/base.js";
+import { SERVER_VIEW_OFFSETS } from "/js/servers/base.js";
 
 const CLIENT_CONTROL_OFFSETS = {
   mx: 0, // 2
@@ -35,7 +36,7 @@ class CerealClient {
     this.camera = {
       x: 0,
       y: 0,
-      fov: 500,
+      fov: 1,
     };
 
     this.controlBuf = new ArrayBuffer(SEND_BUF_SIZE);
@@ -60,7 +61,7 @@ class CerealClient {
     this._resize();
     this._setUpEvents();
     this._render();
-    this._controlLoop();
+    //    this._controlLoop();
   }
 
   _render() {
@@ -72,20 +73,22 @@ class CerealClient {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.scale(camera.zoom, camera.zoom);
-    ctx.translate(camera.x, camera.y);
+    const zoom = canvas.width / (camera.fov * 2);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-camera.x, -camera.y);
 
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, spaceInfo.width, spaceInfo.height);
 
     ctx.fillStyle = "grey";
-    const dv = new DataView(entityBuf);
+    const dv = new DataView(entityBuf.buffer || entityBuf);
+    let entity = new CerealEntity({ dv }, 0, true); // cannot call sync
     for (let i = 0; i < entityBuf.byteLength; i += BYTES_PER_ENTITY) {
-      if (dv.getUint8(i) === 0) break;
-      const x = dv.getUint16(i + CEREAL_ENTITY_OFFSETS.px, true);
-      const y = dv.getUint16(i + CEREAL_ENTITY_OFFSETS.py, true);
-      const w = dv.getUint16(i + CEREAL_ENTITY_OFFSETS.w, true);
-      const h = dv.getUint16(i + CEREAL_ENTITY_OFFSETS.h, true);
+      entity.index = i;
+      const x = entity.px;
+      const y = entity.py;
+      const w = entity.w;
+      const h = entity.h;
       ctx.fillRect(x, y, w, h);
     }
     ctx.restore();
@@ -117,9 +120,14 @@ class CerealClient {
         dv.getUint32(SPACE_INFO_OFFSETS.tickTime, true) * 0.01;
     });
 
-    this.connector.onPacket(PACKET_TYPES.ENTITY, (cnt, data, dv) => {
-      this.entityBuf = data;
-      console.log(this.entityBuf);
+    this.connector.onPacket(PACKET_TYPES.VIEW, (cnt, data, dv) => {
+      this.camera.x = dv.getUint16(SERVER_VIEW_OFFSETS.x, true);
+      this.camera.y = dv.getUint16(SERVER_VIEW_OFFSETS.y, true);
+      this.camera.fov = dv.getUint16(SERVER_VIEW_OFFSETS.fov, true) * 0.01;
+      this.entityBuf = data.slice(
+        SERVER_VIEW_OFFSETS.entities,
+        data._packetLength || data.byteLength,
+      );
     });
   }
 

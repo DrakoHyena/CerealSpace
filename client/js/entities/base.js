@@ -22,16 +22,20 @@ const U32_PER_HEADER = CEREAL_U32_HEADER_OFFSETS._totalBytes;
 const u32_PER_BLOCK = U32_PER_HEADER + u32_PER_ENTITY;
 
 class CerealEntity {
-  constructor(cerealSpace, index) {
+  constructor(cerealSpace, index, dontUseId = false) {
     this.cs = cerealSpace;
-    this.id = this.cs.dv.getUint32(
-      index - BYTES_PER_HEADER + CEREAL_HEADER_OFFSETS.id,
-      true,
-    );
+    this.dontUseId = dontUseId;
+    this.id =
+      this.dontUseId ||
+      this.cs.dv.getUint32(
+        index - BYTES_PER_HEADER + CEREAL_HEADER_OFFSETS.id,
+        true,
+      );
     this.index = index;
   }
 
   sync() {
+    if (this.dontUseId) throw new Error("Cannot sync on id-less entity views!");
     this.index = this.cs.idToDataIndex[this.id];
   }
 

@@ -11,6 +11,9 @@
 
         const canvas = document.getElementById("canvas");
         const serverWorker = new Worker("/js/servers/base.js", {type: "module"});
+        serverWorker.onerror = () => {
+            throw new Error("Failed to start serverWorker, make sure you have no errors or typos")
+        }
         const client = new CerealClient(canvas, serverWorker);
     </script>
     <canvas id="canvas"></canvas>

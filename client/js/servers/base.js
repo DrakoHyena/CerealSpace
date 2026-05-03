@@ -7,14 +7,26 @@ import {
   STATUS,
 } from "/js/connectors/base.js";
 import { CLIENT_CONTROL_OFFSETS } from "/js/clients/nubase.js";
-
-const connector = new CerealConnector(MODES.SERVER);
-const connection = connector.addConnection(self);
-const cs = new CerealSpace(connector);
+import {
+  BYTES_PER_BLOCK,
+  BYTES_PER_ENTITY,
+  BYTES_PER_HEADER,
+} from "/js/entities/base.js";
 
 class Player {
-  constructor(cnt) {
+  constructor(cnt, cs) {
     this.cnt = cnt;
+    this.entity = new CerealEntity(cs, cs.addEntity());
+    this.entity.px = 1;
+    this.entity.py = 1;
+    this.entity.w = 50;
+    this.entity.h = 50;
+
+    this.camera = {
+      x: 1,
+      y: 1,
+      fov: 100,
+    };
     this.controls = {
       mouse: {
         x: 0,
@@ -33,6 +45,16 @@ class Player {
   tick() {
     // Update scroll
     this.controls.mouse.scroll *= 0.9;
+
+    // Update entity
+    this.entity.sync();
+    const doesExist = this.entity.index === 1;
+    if (!doesExist) return;
+  }
+
+  updateCameraFromEntity() {
+    this.camera.x = this.entity.px + this.entity.w * 0.5;
+    this.camera.y = this.entity.py + this.entity.h * 0.5;
   }
 
   updateControls(controlsDv) {
@@ -55,39 +77,117 @@ class Player {
       keyboard[String.fromCharCode(controlsDv.getUint16(i, true))] =
         controlsDv.getUint8(i + 2, true);
     }
-    console.log(this.controls.keyboard, this.controls.mouse);
   }
 }
-const players = new Map();
 
-connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
-  players.set(cnt, new Player(cnt));
-  connector.sendPacket(PACKET_TYPES.SPACE_INFO, cs.spaceInfoBuf, cnt);
-});
+const SERVER_VIEW_OFFSETS = {
+  x: 0, // 2
+  y: 2, // 2
+  fov: 4, // 2
+  entities: 6, // rest
+};
 
-connector.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
-  players.delete(cnt);
-});
+class Server {
+  constructor() {
+    this.connector = new CerealConnector(MODES.SERVER);
+    this.connection = this.connector.addConnection(self);
+    this.cs = new CerealSpace(this.connector);
 
-connector.onPacket(PACKET_TYPES.CONTROLS, (cnt, data, dv) => {
-  if (cnt.status !== STATUS.OPEN) return;
-  const player = players.get(cnt);
-  player.updateControls(dv);
-});
+    this.players = new Map();
 
-setInterval(() => {
-  connector.sendPacket(PACKET_TYPES.SPACE_INFO, cs.spaceInfoBuf);
-}, 1000 / 2);
-
-setInterval(() => {
-  for (let [cnt, player] of players) {
-    player.tick();
+    this._setUpPackets();
+    this._setUpLoops();
   }
-}, 1000 / 8);
 
-setInterval(() => {
-  tickCerealSpace(cs);
-}, 1000 / 30);
+  _setUpPackets() {
+    this.connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
+      this.players.set(cnt, new Player(cnt, this.cs));
+      this.connector.sendPacket(
+        PACKET_TYPES.SPACE_INFO,
+        this.cs.spaceInfoBuf,
+        cnt,
+      );
+    });
+
+    this.connector.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
+      this.players.delete(cnt);
+    });
+
+    this.connector.onPacket(PACKET_TYPES.CONTROLS, (cnt, data, dv) => {
+      if (cnt.status !== STATUS.OPEN) return;
+      const player = players.get(cnt);
+      player.updateControls(dv);
+    });
+  }
+
+  _setUpLoops() {
+    // Update game room data
+    setInterval(() => {
+      this.connector.sendPacket(PACKET_TYPES.SPACE_INFO, this.cs.spaceInfoBuf);
+    }, 1000 / 2);
+
+    // Update views
+    setInterval(() => {
+      for (let [cnt, player] of this.players) {
+        player.updateCameraFromEntity();
+
+        // camera
+        this.connector.sendDv.setUint16(
+          SERVER_VIEW_OFFSETS.x,
+          player.camera.x,
+          true,
+        );
+        this.connector.sendDv.setUint16(
+          SERVER_VIEW_OFFSETS.y,
+          player.camera.y,
+          true,
+        );
+        this.connector.sendDv.setUint16(
+          SERVER_VIEW_OFFSETS.fov,
+          player.camera.fov * 100,
+          true,
+        );
+
+        // entities
+        const x1 = player.camera.x - player.camera.fov;
+        const y1 = player.camera.y - player.camera.fov;
+        const x2 = player.camera.x + player.camera.fov;
+        const y2 = player.camera.y + player.camera.fov;
+        const ents = this.cs.query(x1, y1, x2, y2, undefined, 0, true);
+        let entityLen = 0;
+        for (let i = 0; i < ents.byteLength; i += BYTES_PER_BLOCK) {
+          this.connector.sendU8.set(
+            ents.subarray(i + BYTES_PER_HEADER, i + BYTES_PER_BLOCK),
+            SERVER_VIEW_OFFSETS.entities + entityLen,
+          );
+          entityLen += BYTES_PER_ENTITY;
+        }
+        this.connector.sendPacket(
+          PACKET_TYPES.VIEW,
+          this.connector.sendU8.subarray(
+            0,
+            SERVER_VIEW_OFFSETS.entities + entityLen,
+          ),
+          cnt,
+        );
+      }
+    }, 1000 / 30);
+
+    // Misc. Player ticks
+    setInterval(() => {
+      for (let [cnt, player] of this.players) {
+        player.tick();
+      }
+    }, 1000 / 8);
+
+    // Tick Space
+    setInterval(() => {
+      tickCerealSpace(this.cs);
+    }, 1000 / 30);
+  }
+}
+
+if (typeof window === "undefined" && typeof self !== "undefined") new Server();
 
 /*
 function applyForce(pos, size, direction) {
@@ -139,3 +239,5 @@ self.onmessage = (e) => {
 
 self.postMessage({ entityArray: cs.entityBuf, controlArray: cs.controlBuf });
 */
+
+export { SERVER_VIEW_OFFSETS };
