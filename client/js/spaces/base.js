@@ -34,7 +34,7 @@ function tickCerealSpace(cs) {
 }
 
 function movement(entity) {
-  entity.px += 1;
+  entity.vx += 2;
   if (entity.vx === 0 && entity.vy === 0) return;
   entity.px += entity.vx;
   entity.py += entity.vy;

@@ -123,7 +123,7 @@ class CerealClient {
     this.connector.onPacket(PACKET_TYPES.VIEW, (cnt, data, dv) => {
       this.camera.x = dv.getUint16(SERVER_VIEW_OFFSETS.x, true);
       this.camera.y = dv.getUint16(SERVER_VIEW_OFFSETS.y, true);
-      this.camera.fov = dv.getUint16(SERVER_VIEW_OFFSETS.fov, true) * 0.01;
+      this.camera.fov = dv.getUint16(SERVER_VIEW_OFFSETS.fov, true);
       this.entityBuf = data.slice(
         SERVER_VIEW_OFFSETS.entities,
         data._packetLength || data.byteLength,

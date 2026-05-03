@@ -1,3 +1,4 @@
 - Work on client
   - controls
   - optimize slice/sub
+  - entity disappears after wrapping

@@ -25,7 +25,7 @@ class Player {
     this.camera = {
       x: 1,
       y: 1,
-      fov: 100,
+      fov: 2000,
     };
     this.controls = {
       mouse: {
@@ -144,7 +144,7 @@ class Server {
         );
         this.connector.sendDv.setUint16(
           SERVER_VIEW_OFFSETS.fov,
-          player.camera.fov * 100,
+          player.camera.fov,
           true,
         );
 
