@@ -32,11 +32,13 @@ class CerealEntity {
         true,
       );
     this.index = index;
+    this.exists = true;
   }
 
   sync() {
     if (this.dontUseId) throw new Error("Cannot sync on id-less entity views!");
     this.index = this.cs.idToDataIndex[this.id];
+    this.exists = this.index !== 1;
   }
 
   get px() {

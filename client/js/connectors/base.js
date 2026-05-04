@@ -72,23 +72,23 @@ class CerealConnection {
     this.close = func;
   }
   diffPacketAndCache(type, newPacket) {
-    if (newPacket instanceof Uint8Array === false) {
-      newPacket = new Uint8Array(newPacket);
-    }
-
     if (this.packetCache[type] === undefined) {
-      this.packetCache[type] = new Uint8Array(SEND_BUF_SIZE);
+      const cacheBuf = new ArrayBuffer(SEND_BUF_SIZE);
+      this.packetCache[type] = new Uint8Array(
+        cacheBuf,
+        0,
+        newPacket.byteLength,
+      );
       this.packetCache[type].set(newPacket, 0);
-      this.packetCache[type]._packetLength = newPacket.byteLength;
       return false;
     }
 
     const cachePacket = this.packetCache[type];
-    const cacheLength = this.packetCache[type]._packetLength;
-    const loopLen = Math.max(cacheLength, newPacket.byteLength);
-    let dvIndex = 2;
+    const loopLen = newPacket.byteLength;
+    let dvIndex = 4;
     const dv = this.diffView;
     dv.setUint16(0, type, true);
+    dv.setUint16(2, newPacket.byteLength, true);
     const MAX_GAP = 4;
     let gap = 0;
     let startIndex = -1;
@@ -119,7 +119,7 @@ class CerealConnection {
       }
     }
     if (startIndex !== -1) {
-      const endIndex = cacheLength - gap;
+      const endIndex = loopLen - gap;
       const chunkLen = endIndex - startIndex;
 
       if (chunkLen > 0) {
@@ -131,29 +131,40 @@ class CerealConnection {
         dvIndex += chunkLen;
       }
     }
-
-    cachePacket.set(newPacket, 0);
-    cachePacket._packetLength = newPacket.byteLength;
+    this.packetCache[type] = new Uint8Array(
+      cachePacket.buffer,
+      0,
+      newPacket.byteLength,
+    );
+    this.packetCache[type].set(newPacket, 0);
     return this.diff.subarray(0, dvIndex);
   }
   applyDiffAndCache(diffPacket, dv) {
     let i = 0;
     const type = dv.getUint16(i, true);
     i += 2;
-    const cachePacket = this.packetCache[type];
+    const len = dv.getUint16(i, true);
+    i += 2;
+    let cachePacket = this.packetCache[type];
     if (cachePacket === undefined) {
       throw new Error(
         `No packet cache created for type "${type}" on connection "${this}"`,
       );
     }
 
+    this.packetCache[type] = cachePacket = new Uint8Array(
+      cachePacket.buffer,
+      0,
+      len,
+    );
+
     while (i < diffPacket.byteLength) {
       const index = dv.getUint16(i, true);
       i += 2;
-      const len = dv.getUint16(i, true);
+      const eLen = dv.getUint16(i, true);
       i += 2;
-      cachePacket.set(diffPacket.subarray(i, i + len), index);
-      i += len;
+      cachePacket.set(diffPacket.subarray(i, i + eLen), index);
+      i += eLen;
     }
     return [type, cachePacket];
   }
@@ -250,7 +261,7 @@ class CerealConnector {
     cc.setCanSend(() => {
       return true;
     });
-    cc.setSend(worker.postMessage.bind(worker));
+    cc.setSend((data) => worker.postMessage(data.slice()));
     cc.setClose(
       this.mode === MODES.CLIENT ? worker.terminate.bind(worker) : () => {},
     );
@@ -320,9 +331,8 @@ class CerealConnector {
   }
 
   _processSendData(type, data, cnt) {
-    if (data instanceof Uint8Array === false) {
-      data = new Uint8Array(data);
-    }
+    data = new Uint8Array(data);
+
     const diffPacket =
       CACHE_MODES[type] === this.mode
         ? cnt.diffPacketAndCache(type, data)
@@ -353,7 +363,7 @@ class CerealConnector {
   }
 
   _processReceiveData(cnt, e) {
-    const data = e.data;
+    const data = new Uint8Array(e.data);
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const type = dv.getUint16(CONNECTOR_OFFSETS.packetType, true);
     const finalArr = data.subarray(CONNECTOR_OFFSETS._totalBytes);
@@ -365,11 +375,20 @@ class CerealConnector {
 
     if (CACHE_MODES[type] !== undefined && CACHE_MODES[type] !== this.mode) {
       if (cnt.packetCache[type] === undefined) {
-        cnt.packetCache[type] = new Uint8Array(SEND_BUF_SIZE);
+        cnt.packetCache[type] = new Uint8Array(
+          new ArrayBuffer(SEND_BUF_SIZE),
+          0,
+          0,
+        );
       }
+      cnt.packetCache[type] = new Uint8Array(
+        cnt.packetCache[type].buffer,
+        0,
+        finalArr.byteLength,
+      );
       cnt.packetCache[type].set(finalArr, 0);
-      cnt.packetCache[type]._packetLength = finalArr.byteLength;
     }
+
     let funcArr = this.onPacketFuncs.get(type);
     if (funcArr === undefined || funcArr.length === 0) {
       console.warn(

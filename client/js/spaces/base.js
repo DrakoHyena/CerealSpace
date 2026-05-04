@@ -17,16 +17,20 @@ let avgTick = 0;
 
 function tickCerealSpace(cs) {
   let s = performance.now();
+
   cs.loopEntities((entity) => {
-    // Engine
-    keepInBounds(cs, entity);
     // Movement
     movement(entity);
+
     // Collision
     if (cs.tick % CONFIG.CerealSpace.collisionInterval === 0)
       cs.getCollisions(entity, collide);
+
+    // Engine
+    keepInBounds(cs, entity);
   });
   if (cs.tick % CONFIG.CerealSpace.sortInterval === 0) cs.sort();
+
   avgTick *= 0.95;
   avgTick += 0.05 * (performance.now() - s);
   cs.tick++;
@@ -34,12 +38,11 @@ function tickCerealSpace(cs) {
 }
 
 function movement(entity) {
-  entity.vx += 2;
   if (entity.vx === 0 && entity.vy === 0) return;
   entity.px += entity.vx;
   entity.py += entity.vy;
-  entity.vx *= 0.8;
-  entity.vy *= 0.8;
+  entity.vx *= 0.95;
+  entity.vy *= 0.95;
 }
 
 function collide(entityA, entityB, damper = 0.9) {
@@ -65,22 +68,47 @@ function collide(entityA, entityB, damper = 0.9) {
 }
 
 function keepInBounds(cs, ent) {
-  const xDiff = ent.px - cs.width;
-  const yDiff = ent.py + cs.height;
-  if (xDiff > 0) {
-    ent.px -= xDiff;
+  const padding = cs.padding;
+  //  if (padding === 0) return;
+
+  // -,-
+  const x1 = ent.px;
+  const y1 = ent.py;
+  if (x1 < padding) {
+    ent.px = padding;
+    ent.vx = 0;
   }
-  if (yDiff > 0) {
-    ent.py -= yDiff;
+  if (y1 < padding) {
+    ent.py = padding;
+    ent.vy = 0;
+  }
+
+  // +,+
+  const x2 = x1 + ent.w;
+  const y2 = y1 + ent.h;
+  const csW = cs.width - padding;
+  const csH = cs.height - padding;
+  if (cs.width < x2) {
+    ent.px = padding;
+    ent.vx = 0;
+  }
+  if (csW < x2) {
+    ent.px -= x2 - csH;
+    ent.vx = 0;
+  }
+  if (csH < y2) {
+    ent.py -= y2 - csH;
+    ent.vy = 0;
   }
 }
 
 const SPACE_INFO_OFFSETS = {
   width: 0, // 2
   height: 2, // 2
-  entityAmount: 4, // 4
-  tickTime: 8, // 4
-  _totalBytes: 12,
+  padding: 4, // 2
+  entityAmount: 6, // 4
+  tickTime: 10, // 4
+  _totalBytes: 14,
 };
 
 class CerealSpace {
@@ -90,6 +118,7 @@ class CerealSpace {
 
     this.width = CONFIG.CerealSpace.width;
     this.height = CONFIG.CerealSpace.height;
+    this.padding = CONFIG.CerealSpace.padding;
 
     this.spaceInfoBuf = new ArrayBuffer(SPACE_INFO_OFFSETS._totalBytes);
     this.spaceInfoView = new DataView(this.spaceInfoBuf);
@@ -422,6 +451,11 @@ class CerealSpace {
   _updateSpaceInfo() {
     this.spaceInfoView.setUint16(SPACE_INFO_OFFSETS.width, this.width, true);
     this.spaceInfoView.setUint16(SPACE_INFO_OFFSETS.height, this.height, true);
+    this.spaceInfoView.setUint16(
+      SPACE_INFO_OFFSETS.padding,
+      this.padding,
+      true,
+    );
     this.spaceInfoView.setUint32(
       SPACE_INFO_OFFSETS.entityAmount,
       this.freeIndex / BYTES_PER_BLOCK,

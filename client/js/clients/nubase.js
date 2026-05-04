@@ -26,10 +26,11 @@ class CerealClient {
     this.canvas = canvas;
     this.ctx = this.canvas.getContext("2d");
 
-    this.entityBuf = new ArrayBuffer(0);
+    this.entityBuf = new Uint8Array(0);
     this.spaceInfo = {
       width: 1,
       height: 1,
+      padding: 0,
       entityAmount: 0,
       tickTime: 0,
     };
@@ -61,7 +62,7 @@ class CerealClient {
     this._resize();
     this._setUpEvents();
     this._render();
-    //    this._controlLoop();
+    this._controlLoop();
   }
 
   _render() {
@@ -78,10 +79,19 @@ class CerealClient {
     ctx.translate(-camera.x, -camera.y);
 
     ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, spaceInfo.width, spaceInfo.height);
+    ctx.fillRect(
+      spaceInfo.padding,
+      spaceInfo.padding,
+      spaceInfo.width - spaceInfo.padding,
+      spaceInfo.height - spaceInfo.padding,
+    );
 
     ctx.fillStyle = "grey";
-    const dv = new DataView(entityBuf.buffer || entityBuf);
+    const dv = new DataView(
+      entityBuf.buffer,
+      entityBuf.byteOffset,
+      entityBuf.byteLength,
+    );
     let entity = new CerealEntity({ dv }, 0, true); // cannot call sync
     for (let i = 0; i < entityBuf.byteLength; i += BYTES_PER_ENTITY) {
       entity.index = i;
@@ -112,6 +122,7 @@ class CerealClient {
     this.connector.onPacket(PACKET_TYPES.SPACE_INFO, (cnt, data, dv) => {
       this.spaceInfo.width = dv.getUint16(SPACE_INFO_OFFSETS.width, true);
       this.spaceInfo.height = dv.getUint16(SPACE_INFO_OFFSETS.height, true);
+      this.spaceInfo.padding = dv.getUint16(SPACE_INFO_OFFSETS.padding, true);
       this.spaceInfo.entityAmount = dv.getUint32(
         SPACE_INFO_OFFSETS.entityAmount,
         true,
@@ -148,12 +159,14 @@ class CerealClient {
     });
 
     window.addEventListener("keydown", (e) => {
+      if (e.key === "Shift") return;
       this.controlDv.setUint16(this.controlIndex, e.key.charCodeAt(0), true);
       this.controlDv.setUint8(this.controlIndex + 2, 1, true);
       this.controlIndex += CLIENT_CONTROL_OFFSETS.keyBlock;
     });
 
     window.addEventListener("keyup", (e) => {
+      if (e.key === "Shift") return;
       this.controlDv.setUint16(this.controlIndex, e.key.charCodeAt(0), true);
       this.controlDv.setUint8(this.controlIndex + 2, 0, true);
       this.controlIndex += CLIENT_CONTROL_OFFSETS.keyBlock;
@@ -166,9 +179,6 @@ class CerealClient {
         e.deltaY;
       this.controlU8[CLIENT_CONTROL_OFFSETS.scrollDelta] = v & 0xff;
       this.controlU8[CLIENT_CONTROL_OFFSETS.scrollDelta + 1] = (v >> 8) & 0xff;
-      console.log(
-        this.controlDv.getInt16(CLIENT_CONTROL_OFFSETS.scrollDelta, true),
-      );
     });
 
     this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -182,6 +192,7 @@ class CerealClient {
         this.controlU8.subarray(0, this.controlIndex),
         this.connection,
       );
+      this.controlDv.setUint16(CLIENT_CONTROL_OFFSETS.scrollDelta, 0, true);
       this.controlIndex = CLIENT_CONTROL_OFFSETS.keyLog;
     }, 1000 / 30);
   }

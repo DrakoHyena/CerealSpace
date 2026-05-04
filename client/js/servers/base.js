@@ -25,7 +25,7 @@ class Player {
     this.camera = {
       x: 1,
       y: 1,
-      fov: 2000,
+      fov: 500,
     };
     this.controls = {
       mouse: {
@@ -45,16 +45,39 @@ class Player {
   tick() {
     // Update scroll
     this.controls.mouse.scroll *= 0.9;
+    this.camera.fov += this.controls.mouse.scroll * 0.125;
 
     // Update entity
     this.entity.sync();
-    const doesExist = this.entity.index === 1;
-    if (!doesExist) return;
+    if (this.entity.exists === false) return;
+    // Movement
+    const keyboard = this.controls.keyboard;
+    const speed = 10;
+    if (keyboard["w"] || keyboard["W"]) {
+      this.entity.vy -= speed;
+    }
+    if (keyboard["s"] || keyboard["S"]) {
+      this.entity.vy += speed;
+    }
+    if (keyboard["a"] || keyboard["A"]) {
+      this.entity.vx -= speed;
+    }
+    if (keyboard["d"] || keyboard["D"]) {
+      this.entity.vx += speed;
+    }
   }
 
   updateCameraFromEntity() {
-    this.camera.x = this.entity.px + this.entity.w * 0.5;
-    this.camera.y = this.entity.py + this.entity.h * 0.5;
+    this.entity.sync();
+    if (this.entity.exists === false) return;
+    this.camera.x = Math.min(
+      65535,
+      Math.max(0, this.entity.px + this.entity.w * 0.5),
+    );
+    this.camera.y = Math.min(
+      65535,
+      Math.max(0, this.entity.py + this.entity.h * 0.5),
+    );
   }
 
   updateControls(controlsDv) {
@@ -115,7 +138,7 @@ class Server {
 
     this.connector.onPacket(PACKET_TYPES.CONTROLS, (cnt, data, dv) => {
       if (cnt.status !== STATUS.OPEN) return;
-      const player = players.get(cnt);
+      const player = this.players.get(cnt);
       player.updateControls(dv);
     });
   }

@@ -36,10 +36,11 @@ const CONFIG = {
     height: 0xffff,
 
     /*
-     * Whether or not entities should wrap to the other side when hitting
-     * space borders or 0xffff
+     * How close before the borders to stop entities
+     * This will prevent wrapping
+     * NOTE: If the entity has sufficient velocity it can overcome the padding
      */
-    wrapping: true,
+    padding: 0,
   },
 };
 

@@ -1,4 +1,3 @@
 - Work on client
-  - controls
+  - Fix wrapping
   - optimize slice/sub
-  - entity disappears after wrapping
