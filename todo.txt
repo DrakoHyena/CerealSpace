@@ -1,3 +1,16 @@
 - Work on client
   - Fix wrapping
   - optimize slice/sub
+- Some thoughts...
+This is meant to be relatively modular as to give
+itself fairly when working with exotic code. 
+This results in them being somewhat seperate 
+products, to varying degrees, which I suppose was
+the goal... however a change to an entity might
+require updates in 3 other places as well.
+Perhaps its best to give thought into "connecting"
+more of the code together so that number might be
+reduced to 1. That is ideal for actual game
+development. Effort should also be made to
+standardized where specific types of
+additions should lie.
