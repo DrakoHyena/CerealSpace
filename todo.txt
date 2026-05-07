@@ -1,5 +1,8 @@
-- Work on client
-  - optimize slice/sub
+- Better packets, see more thoughts
+  - Lists
+- Rotations
+- Spend a full session cleaning/organizing
+  - weed out slice/sub
 - Some thoughts...
 This is meant to be relatively modular as to give
 itself fairly when working with exotic code. 
