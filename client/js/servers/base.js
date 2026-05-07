@@ -45,14 +45,14 @@ class Player {
   tick() {
     // Update scroll
     this.controls.mouse.scroll *= 0.9;
-    this.camera.fov += this.controls.mouse.scroll * 0.125;
+    this.camera.fov += this.controls.mouse.scroll * 0.5;
 
     // Update entity
     this.entity.sync();
     if (this.entity.exists === false) return;
     // Movement
     const keyboard = this.controls.keyboard;
-    const speed = 10;
+    const speed = 200;
     if (keyboard["w"] || keyboard["W"]) {
       this.entity.vy -= speed;
     }
@@ -153,6 +153,7 @@ class Server {
     setInterval(() => {
       for (let [cnt, player] of this.players) {
         player.updateCameraFromEntity();
+        const fov = player.camera.fov & 0xffff;
 
         // camera
         this.connector.sendDv.setUint16(
@@ -165,17 +166,13 @@ class Server {
           player.camera.y,
           true,
         );
-        this.connector.sendDv.setUint16(
-          SERVER_VIEW_OFFSETS.fov,
-          player.camera.fov,
-          true,
-        );
+        this.connector.sendDv.setUint16(SERVER_VIEW_OFFSETS.fov, fov, true);
 
         // entities
-        const x1 = player.camera.x - player.camera.fov;
-        const y1 = player.camera.y - player.camera.fov;
-        const x2 = player.camera.x + player.camera.fov;
-        const y2 = player.camera.y + player.camera.fov;
+        const x1 = player.camera.x - fov;
+        const y1 = player.camera.y - fov;
+        const x2 = player.camera.x + fov;
+        const y2 = player.camera.y + fov;
         const ents = this.cs.query(x1, y1, x2, y2, undefined, 0, true);
         let entityLen = 0;
         for (let i = 0; i < ents.byteLength; i += BYTES_PER_BLOCK) {

@@ -25,6 +25,11 @@ class CerealClient {
   constructor(canvas, serverWorker) {
     this.canvas = canvas;
     this.ctx = this.canvas.getContext("2d");
+    this.bgGradient = this.ctx.createConicGradient(0, 0xffff >> 1, 0xffff >> 1);
+    this.bgGradient.addColorStop(0, "#100817");
+    this.bgGradient.addColorStop(0.33, "#646356");
+    this.bgGradient.addColorStop(0.66, "#41373E");
+    this.bgGradient.addColorStop(1, "#1D9D88");
 
     this.entityBuf = new Uint8Array(0);
     this.spaceInfo = {
@@ -70,23 +75,24 @@ class CerealClient {
     let { canvas, ctx, camera, spaceInfo, avgRender, entityBuf } = this;
     const s = performance.now();
 
-    ctx.fillStyle = "#555555";
+    ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
     const zoom = canvas.width / (camera.fov * 2);
     ctx.scale(zoom, zoom);
     ctx.translate(-camera.x, -camera.y);
 
-    ctx.fillStyle = "#000000";
+    ctx.fillStyle = this.bgGradient;
     ctx.fillRect(
       spaceInfo.padding,
       spaceInfo.padding,
-      spaceInfo.width - spaceInfo.padding,
-      spaceInfo.height - spaceInfo.padding,
+      spaceInfo.width - spaceInfo.padding * 2,
+      spaceInfo.height - spaceInfo.padding * 2,
     );
 
-    ctx.fillStyle = "grey";
+    ctx.fillStyle = "#FFFFFF";
     const dv = new DataView(
       entityBuf.buffer,
       entityBuf.byteOffset,

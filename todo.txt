@@ -1,5 +1,4 @@
 - Work on client
-  - Fix wrapping
   - optimize slice/sub
 - Some thoughts...
 This is meant to be relatively modular as to give

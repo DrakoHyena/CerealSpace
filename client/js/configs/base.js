@@ -36,9 +36,9 @@ const CONFIG = {
     height: 0xffff,
 
     /*
-     * How close before the borders to stop entities
-     * This will prevent wrapping
-     * NOTE: If the entity has sufficient velocity it can overcome the padding
+     * How far before the edges to stop entities
+     * Touching an edge wraps entities, This will prevent wrapping
+     * NOTE: If the entity has sufficient velocity it can overcome the padding and wrap
      */
     padding: 0,
   },

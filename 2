@@ -79,6 +79,8 @@ function collide(entityA, entityB, damper = 0.9) {
 
 function keepInBounds(cs, ent) {
   const padding = cs.padding;
+  //  if (padding === 0) return;
+
   const csW = cs.width - padding;
   const csH = cs.height - padding;
   const w = ent.w;
@@ -90,28 +92,31 @@ function keepInBounds(cs, ent) {
   let x2 = x1 + w;
   let y2 = y1 + h;
   if (x2 < padding) {
-    x1 = ent.px = csW - w;
+    x1 = ent.px = x2 - csW;
+    ent.vx = 0;
   } else if (x1 < padding) {
     x1 = ent.px = padding;
+    ent.vx = 0;
   }
   if (y2 < padding) {
-    y1 = ent.py = csH - h;
-  } else if (y1 < padding) {
+    y1 = ent.py = y2 - csH;
+    ent.vy = 0;
+  }
+  if (y1 < padding) {
     y1 = ent.py = padding;
+    ent.vy = 0;
   }
 
   // +,+
-  x2 = x1 + w;
-  y2 = y1 + h;
-  if (csW < x1) {
-    ent.px = padding;
-  } else if (csW < x2) {
-    ent.px = csW - w;
+  x2 = x1 + ent.w;
+  y2 = y1 + ent.h;
+  if (csW < x2) {
+    ent.px -= x2 - csW;
+    ent.vx = 0;
   }
-  if (csH < y1) {
-    ent.py = padding;
-  } else if (csH < y2) {
-    ent.py = csH - h;
+  if (csH < y2) {
+    ent.py -= y2 - csH;
+    ent.vy = 0;
   }
 }
 
