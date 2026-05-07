@@ -67,16 +67,6 @@ function collide(entityA, entityB, damper = 0.9) {
   }
 }
 
-/* 0,0
- * 1 < min -> 0xffff
- *
- *
- * 0xffff, 0xffff
- * 1 > max -> max - size
- * 2 > max -> min
- *
- */
-
 function keepInBounds(cs, ent) {
   const padding = cs.padding;
   const csW = cs.width - padding;
