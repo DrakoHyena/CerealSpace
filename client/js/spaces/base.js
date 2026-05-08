@@ -114,6 +114,17 @@ const SPACE_INFO_OFFSETS = {
   _totalBytes: 14,
 };
 
+const SPACE_SAVE_OFFSETS = {
+  width: 0, // 2
+  height: 2, // 2
+  padding: 4, // 2
+  nextFreeIdIndex: 6, // 4
+  freeIdSpaceIndex: 10, // 4
+  idData: 14, // 0xffffff
+  entityData: 14 + 0xffffff, // 0xffffff
+  _totalBytes: 14 + 0xffffff * 2,
+};
+
 class CerealSpace {
   constructor() {
     this.maxEntities = CONFIG.CerealSpace.maxEntities;
@@ -183,6 +194,66 @@ class CerealSpace {
 
     this.tick = 0;
     this._updateSpaceInfo();
+    setInterval(() => {
+      this.loadSpace(this.saveSpace());
+    }, 3000);
+  }
+
+  loadSpace(saveU8) {
+    console.log("Importing CerealSpace...");
+    let start = performance.now();
+
+    if (saveU8 instanceof Uint8Array === false) {
+      throw new Error(
+        "loadSpace requires an Uint8Array for its first parameter",
+      );
+    } else if (saveU8.byteLength !== SPACE_SAVE_OFFSETS._totalBytes) {
+      throw new Error(
+        `Provided SaveBuffer is ${saveBuf.byteLength} bytes long while we expect ${SPACE_SAVE_OFFSETS._totalBytes}`,
+      );
+    }
+    const saveDv = new DataView(saveU8.buffer);
+    this.width = saveDv.getUint16(SPACE_SAVE_OFFSETS.width, true);
+    this.height = saveDv.getUint16(SPACE_SAVE_OFFSETS.height, true);
+    this.padding = saveDv.getUint16(SPACE_SAVE_OFFSETS.padding, true);
+    this.nextFreeId = saveDv.getUint32(
+      SPACE_SAVE_OFFSETS.nextFreeIdIndex,
+      true,
+    );
+    this.freeIdSpace = saveDv.getUint32(
+      SPACE_SAVE_OFFSETS.freeIdSpaceIndex,
+      true,
+    );
+    if (this._activeSide !== 0) this._swapSides();
+    this.freeIds.set(
+      saveU8.subarray(SPACE_SAVE_OFFSETS.idData, this.maxEntities),
+    );
+    this.u8.set(
+      saveU8.subarray(SPACE_SAVE_OFFSETS.entityData, this.maxEntitiesBytes),
+    );
+    this.sort();
+    console.log(`CerealSpace imported in ${performance.now() - start}ms`);
+  }
+
+  saveSpace() {
+    console.log("Exporting CerealSpace...");
+    let start = performance.now();
+    const saveBuf = new ArrayBuffer(SPACE_SAVE_OFFSETS._totalBytes);
+    const saveDv = new DataView(saveBuf);
+    const saveU8 = new Uint8Array(saveBuf);
+    saveDv.setUint16(SPACE_SAVE_OFFSETS.width, this.width, true);
+    saveDv.setUint16(SPACE_SAVE_OFFSETS.height, this.height, true);
+    saveDv.setUint16(SPACE_SAVE_OFFSETS.padding, this.padding, true);
+    saveDv.setUint32(SPACE_SAVE_OFFSETS.nextFreeIdIndex, this.nextFreeId, true);
+    saveDv.setUint32(
+      SPACE_SAVE_OFFSETS.freeIdSpaceIndex,
+      this.freeIdSpace,
+      true,
+    );
+    saveU8.set(this.freeIds, SPACE_SAVE_OFFSETS.idData);
+    saveU8.set(this.u32, SPACE_SAVE_OFFSETS.entityData);
+    console.log(`CerealSpace exported in ${performance.now() - start}ms`);
+    return saveU8;
   }
 
   addEntity() {
@@ -191,7 +262,7 @@ class CerealSpace {
         `Cannot create entities past the maximum of ${this.maxEntities}`,
       );
     this.u8.fill(0, this.freeIndex, this.freeIndex + BYTES_PER_BLOCK);
-    const id = this.getNewId();
+    const id = this._getNewId();
     this.u32[(this.freeIndex >> 2) + CEREAL_U32_HEADER_OFFSETS.id] = id;
     this.idToDataIndex[id] = this.freeIndex + BYTES_PER_HEADER;
     this.freeIndex += BYTES_PER_BLOCK;
@@ -205,7 +276,7 @@ class CerealSpace {
 
     const oldId = this.u32[u32BlockStart + CEREAL_U32_HEADER_OFFSETS.id];
     this.idToDataIndex[oldId] = 1; // impossible state, so dead
-    this.recycleOldId(oldId);
+    this._recycleOldId(oldId);
 
     if (blockStart !== lastBlockStart) {
       this.u8.copyWithin(blockStart, lastBlockStart, this.freeIndex);
@@ -442,12 +513,12 @@ class CerealSpace {
     }
   }
 
-  getNewId() {
+  _getNewId() {
     if (this.nextFreeId < 0) this.nextFreeId = --this.freeIdSpace;
     return this.freeIds[this.nextFreeId--];
   }
 
-  recycleOldId(id) {
+  _recycleOldId(id) {
     this.freeIds[this.freeIdSpace++] = id;
   }
 
