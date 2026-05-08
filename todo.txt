@@ -1,5 +1,5 @@
-- Better packets, see more thoughts
-  - Lists
+- Save/Loading
+- Tests
 - Rotations
 - Spend a full session cleaning/organizing
   - weed out slice/sub
