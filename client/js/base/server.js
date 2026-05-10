@@ -1,17 +1,17 @@
-import { CerealSpace, tickCerealSpace } from "/js/spaces/base.js";
-import { CerealEntity } from "/js/entities/base.js";
+import { CerealSpace, tickCerealSpace } from "/js/base/space.js";
+import {
+  CerealEntity,
+  BYTES_PER_BLOCK,
+  BYTES_PER_ENTITY,
+  BYTES_PER_HEADER,
+} from "/js/base/entity.js";
 import {
   CerealConnector,
   PACKET_TYPES,
   MODES,
   STATUS,
-} from "/js/connectors/base.js";
-import { CLIENT_CONTROL_OFFSETS } from "/js/clients/nubase.js";
-import {
-  BYTES_PER_BLOCK,
-  BYTES_PER_ENTITY,
-  BYTES_PER_HEADER,
-} from "/js/entities/base.js";
+} from "/js/base/connector.js";
+import { CLIENT_CONTROL_OFFSETS } from "/js/base/client.js";
 
 class Player {
   constructor(cnt, cs) {

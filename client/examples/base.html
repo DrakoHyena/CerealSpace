@@ -2,20 +2,52 @@
 
 <head>
     <link rel="stylesheet" href="/playStyle.css">
+    <style>
+        #container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            width: 100%;
+            height: 100%;
+            color: white;
+            background: black;
+        }
+
+        #container>div {
+            display: flex;
+            flex-direction: column;
+            width: 30vh;
+            background: #363636;
+            padding: 5px;
+        }
+
+        #serverlist {}
+    </style>
 </head>
 
 <body>
     <script defer type="module">
-        import {CerealEntity} from "/js/entities/base.js";
-        import {CerealClient} from "/js/clients/nubase.js";
+        import {CerealClient} from "/js/base/client.js";
 
         const canvas = document.getElementById("canvas");
-        const serverWorker = new Worker("/js/servers/base.js", {type: "module"});
+        const serverWorker = new Worker("/js/base/server.js", {type: "module"});
         serverWorker.onerror = () => {
             throw new Error("Failed to start serverWorker, make sure you have no errors or typos")
         }
         const client = new CerealClient(canvas, serverWorker);
     </script>
+    <div id="container">
+        <div id="titlescreen">
+            <h1>Cereal Space</h1>
+            <button>Host Server</button>
+            <button>Quick Join</button>
+        </div>
+        <div id="serverlist">
+            <p><i>Loading Servers...</i></p>
+        </div>
+    </div>
     <canvas id="canvas"></canvas>
 </body>
 

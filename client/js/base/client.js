@@ -4,10 +4,10 @@ import {
   CONNECTOR_VER,
   MODES,
   SEND_BUF_SIZE,
-} from "/js/connectors/base.js";
-import { SPACE_INFO_OFFSETS } from "/js/spaces/base.js";
-import { CerealEntity, BYTES_PER_ENTITY } from "/js/entities/base.js";
-import { SERVER_VIEW_OFFSETS } from "/js/servers/base.js";
+} from "/js/base/connector.js";
+import { SPACE_INFO_OFFSETS } from "/js/base/space.js";
+import { CerealEntity, BYTES_PER_ENTITY } from "/js/base/entity.js";
+import { SERVER_VIEW_OFFSETS } from "/js/base/server.js";
 
 const CLIENT_CONTROL_OFFSETS = {
   mx: 0, // 2

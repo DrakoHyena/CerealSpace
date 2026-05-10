@@ -1,8 +1,6 @@
-import { CONFIG } from "/js/configs/base.js";
+import { CONFIG } from "/js/base/config.js";
 import {
   CerealEntity,
-  CEREAL_HEADER_OFFSETS,
-  CEREAL_ENTITY_OFFSETS,
   CEREAL_U32_HEADER_OFFSETS,
   CEREAL_U32_ENTITY_OFFSETS,
   BYTES_PER_BLOCK,
@@ -10,8 +8,7 @@ import {
   BYTES_PER_ENTITY,
   u32_PER_BLOCK,
   U32_PER_HEADER,
-  u32_PER_ENTITY,
-} from "/js/entities/base.js";
+} from "/js/base/entity.js";
 
 let avgTick = 0;
 
@@ -194,9 +191,6 @@ class CerealSpace {
 
     this.tick = 0;
     this._updateSpaceInfo();
-    setInterval(() => {
-      this.loadSpace(this.saveSpace());
-    }, 3000);
   }
 
   loadSpace(saveU8) {
