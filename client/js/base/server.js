@@ -123,6 +123,10 @@ class Server {
   }
 
   _setUpPackets() {
+    this.connector.onPacket(PACKET_TYPES.SOCKET_CONNECT, (cnt, data, dv) => {
+      console.log("Established new server connection");
+    });
+
     this.connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
       this.players.set(cnt, new Player(cnt, this.cs));
       this.connector.sendPacket(

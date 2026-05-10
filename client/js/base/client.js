@@ -22,7 +22,7 @@ const CLIENT_CONTROL_OFFSETS = {
 };
 
 class CerealClient {
-  constructor(canvas, serverWorker) {
+  constructor(canvas) {
     this.canvas = canvas;
     this.ctx = this.canvas.getContext("2d");
     this.bgGradient = this.ctx.createConicGradient(0, 0xffff >> 1, 0xffff >> 1);
@@ -52,18 +52,8 @@ class CerealClient {
 
     this.avgRender = 0;
 
-    this.serverWorker = serverWorker;
     this.connector = new CerealConnector(MODES.CLIENT);
-    this.connection = this.connector.addConnection(this.serverWorker);
     this._setUpPackets();
-    this.connector.sendDv.setUint16(0, CONNECTOR_VER, true);
-    this.connector.sendPacket(
-      PACKET_TYPES.CONNECT,
-      this.connector.sendU8.subarray(0, 2),
-      this.connection,
-      true,
-    );
-
     this._resize();
     this._setUpEvents();
     this._render();
@@ -113,6 +103,10 @@ class CerealClient {
   }
 
   _setUpPackets() {
+    this.connector.onPacket(PACKET_TYPES.SOCKET_CONNECT, (cnt, data, dv) => {
+      console.log("Established new client connection");
+    });
+
     this.connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
       // Preloads go here...
 
@@ -196,7 +190,6 @@ class CerealClient {
       this.connector.sendPacket(
         PACKET_TYPES.CONTROLS,
         this.controlU8.subarray(0, this.controlIndex),
-        this.connection,
       );
       this.controlDv.setUint16(CLIENT_CONTROL_OFFSETS.scrollDelta, 0, true);
       this.controlIndex = CLIENT_CONTROL_OFFSETS.keyLog;

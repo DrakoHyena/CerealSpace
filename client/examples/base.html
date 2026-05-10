@@ -28,16 +28,8 @@
 </head>
 
 <body>
-    <script defer type="module">
-        import {CerealClient} from "/js/base/client.js";
+    <script defer type="module" src="/js/base/example.js"></script>
 
-        const canvas = document.getElementById("canvas");
-        const serverWorker = new Worker("/js/base/server.js", {type: "module"});
-        serverWorker.onerror = () => {
-            throw new Error("Failed to start serverWorker, make sure you have no errors or typos")
-        }
-        const client = new CerealClient(canvas, serverWorker);
-    </script>
     <div id="container">
         <div id="titlescreen">
             <h1>Cereal Space</h1>

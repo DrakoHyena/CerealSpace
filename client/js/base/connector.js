@@ -2,13 +2,14 @@ const CONNECTOR_VER = 0;
 const SEND_BUF_SIZE = 0xffff;
 
 const PACKET_TYPES = {
-  DISCONNECT: 0,
-  CONNECT: 1,
-  OPEN: 2,
-  CACHE_UPDATE: 3,
-  SPACE_INFO: 4,
-  CONTROLS: 5,
-  VIEW: 6,
+  SOCKET_CONNECT: 0,
+  DISCONNECT: 1,
+  CONNECT: 2,
+  OPEN: 3,
+  CACHE_UPDATE: 4,
+  SPACE_INFO: 5,
+  CONTROLS: 6,
+  VIEW: 7,
 };
 
 const MODES = {
@@ -50,20 +51,8 @@ class CerealConnection {
     this.diff = new Uint8Array(SEND_BUF_SIZE);
     this.diffView = new DataView(this.diff.buffer);
 
-    this.canSend = () => {
-      return true;
-    };
     this.send = () => {};
     this.close = () => {};
-  }
-  setCanSend(func) {
-    this.canSend = () => {
-      if (this.status !== STATUS.OPEN) {
-        console.warn("Connection is not open, dropping data.");
-        return;
-      }
-      return func;
-    };
   }
   setSend(func) {
     this.send = func;
@@ -257,20 +246,37 @@ class CerealConnector {
 
   _addWorker(worker) {
     const cc = new CerealConnection(worker);
-    cc.status = STATUS.CONNECTED;
-    cc.setCanSend(() => {
-      return true;
-    });
     cc.setSend((data) => worker.postMessage(data.slice()));
     cc.setClose(
       this.mode === MODES.CLIENT ? worker.terminate.bind(worker) : () => {},
     );
     worker.onmessage = this._processReceiveData.bind(this, cc);
     this.connections.add(cc);
+    setTimeout(() => {
+      this.scratchDv.setUint16(
+        PACKET_TYPES.SOCKET_CONNECT,
+        CONNECTOR_OFFSETS.packetType,
+        true,
+      );
+      let dv = new DataView(
+        this.scratchBuf.slice(0, CONNECTOR_OFFSETS._totalBytes),
+        0,
+        CONNECTOR_OFFSETS._totalBytes,
+      );
+
+      let funcArr = this.onPacketFuncs.get(PACKET_TYPES.SOCKET_CONNECT);
+      for (let func of funcArr) {
+        func(cc, dv.buffer, dv);
+      }
+    });
     return cc;
   }
 
   _setUpDefaultHandlers() {
+    this.onPacket(PACKET_TYPES.SOCKET_CONNECT, (cnt, data, dv) => {
+      cnt.status = STATUS.CONNECTED;
+    });
+
     this.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
       cnt.status = STATUS.DISCONNECTED;
       cnt.close();
