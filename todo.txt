@@ -2,3 +2,6 @@
 - Rotations
 - Spend a full session cleaning/organizing
   - weed out slice/sub
+- Document everthing in index.html
+  - Sacrifices made, why this was chosen
+  - Other ways of doing it for other purposes
