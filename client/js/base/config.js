@@ -42,6 +42,10 @@ const CONFIG = {
      */
     padding: 0,
   },
+  CerealConnector: {
+    signalingUrl: "localhost:3000",
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  },
 };
 
 export { CONFIG };

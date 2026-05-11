@@ -1,4 +1,4 @@
+- worker around no WebRTC in workers
 - Rotations
 - Spend a full session cleaning/organizing
   - weed out slice/sub
-- p2p

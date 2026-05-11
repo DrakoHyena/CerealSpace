@@ -113,7 +113,7 @@ const SERVER_VIEW_OFFSETS = {
 class Server {
   constructor() {
     this.connector = new CerealConnector(MODES.SERVER);
-    this.connection = this.connector.addConnection(self);
+    this.connector.makeServerPeer();
     this.cs = new CerealSpace(this.connector);
 
     this.players = new Map();

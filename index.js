@@ -85,16 +85,11 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on("connection", (ws) => {
-  // If this socket created the room, send them their generated ID
-  if (ws.isHost) {
-    ws.send(
-      JSON.stringify({ type: "SIGNAL-SOCKET-ID", serverId: ws.serverId }),
-    );
-  }
+  ws.send(JSON.stringify({ type: "SIGNAL-SOCKET-ID", socketId: ws.socketId }));
 
   ws.on("message", (msg) => {
     const dat = JSON.parse(msg);
-    let targWs = conns.get(target);
+    let targWs = conns.get(dat.target);
     if (!targWs) return;
     dat.from = ws.socketId;
     targWs.send(JSON.stringify(dat));

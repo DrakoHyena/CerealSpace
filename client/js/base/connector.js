@@ -1,3 +1,5 @@
+import { CONFIG } from "/js/base/config.js";
+
 const CONNECTOR_VER = 0;
 const SEND_BUF_SIZE = 0xffff;
 
@@ -242,6 +244,194 @@ class CerealConnector {
     throw new Error(
       `Connection type "${typeof input}" is not supported! ${input}`,
     );
+  }
+
+  async makeServerPeer() {
+    console.log("Making server peer connection");
+    console.log("Connecting to singaling server");
+    const ws = new WebSocket(
+      `ws://${CONFIG.CerealConnector.signalingUrl}/host`,
+    );
+    ws.sendPacket = (dat, targetId) => {
+      ws.send(JSON.stringify({ ...dat, target: targetId }));
+    };
+
+    ws.onerror = (e) => {
+      console.log("Failed to connect to singaling signaling server");
+      console.error(e);
+    };
+
+    ws.onclose = (e) => {
+      console.log("Server connection to the singaling server closed");
+      console.log(e);
+    };
+
+    ws.onopen = (e) => {
+      console.log("Connected to signaling server");
+    };
+
+    const connectingPeers = new Map();
+    ws.onmessage = async (e) => {
+      const dat = JSON.parse(e.data);
+      const sender = dat.from;
+
+      if (dat.type === "SIGNAL_SOCKET_ID") {
+        ws.socketId = dat.socketId;
+      }
+
+      if (!sender) return;
+      let peer = connectingPeers.get(sender);
+      if (peer === undefined) {
+        console.log("Attemping to create peer connection", sender);
+        console.log(this.RTCPeerConnection, self.RTCPeerConnection);
+        peer = new RTCPeerConnection({
+          iceServers: CONFIG.CerealConnector.iceServers,
+        });
+
+        peer.onicecandidate = (e) => {
+          if (e.candidate) ws.sendPacket({ candidate: e.candidate });
+        };
+
+        peer.onnegotiationneeded = async () => {
+          const offer = await peer.createOffer();
+          await peer.setLocalDescription(offer);
+          ws.sendPacket({ offer: peer.localDescription }, sender);
+        };
+
+        connectingPeers.set(sender, peer);
+
+        const dc = peer.createDataChannel("data");
+        dc.addEventListener("open", () => {
+          console.log("Connected to peer", sender);
+          connectingPeers.delete(sender);
+        });
+        dc.addEventListener("error", () => {
+          connectingPeers.delete(sender);
+        });
+        dc.addEventListener("close", () => {
+          connectingPeers.delete(sender);
+        });
+        this._addRTCDataChannel(peer, dc);
+      }
+
+      if (dat.answer) {
+        await peer.setRemoteDescription(dat.answer);
+      } else if (dat.candidate) {
+        await peer.addIceCandidate(dat.candidate);
+      }
+    };
+  }
+
+  async makeClientPeer(targetId) {
+    console.log("Making client peer connection");
+    console.log("Connecting to signaling server");
+
+    const ws = new WebSocket(
+      `ws://${CONFIG.CerealConnector.signalingUrl}/join?id=${targetId}`,
+    );
+
+    ws.sendPacket = (dat) => {
+      console.log(dat);
+      ws.send(JSON.stringify({ ...dat, target: targetId }));
+    };
+
+    ws.onerror = (e) => {
+      console.log("Failed to connect to singaling server");
+      console.error(e);
+    };
+
+    ws.onclose = (e) => {
+      console.log("Connection to the singaling server closed");
+      console.log(e);
+    };
+
+    ws.onopen = (e) => {
+      console.log("Connected to signaling server");
+      ws.sendPacket({}); // notify them we're connecting
+    };
+
+    console.log("Attempting to create peer connection");
+    const peer = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    peer.onicecandidate = (e) => {
+      if (e.candidate) ws.sendPacket({ candidate: e.candidate });
+    };
+
+    ws.onmessage = async (e) => {
+      const dat = JSON.parse(e.data);
+      if (dat.type === "SIGNAL_SOCKET_ID") {
+        ws.socketId = dat.socketId;
+      } else {
+        if (dat.offer) {
+          await peer.setRemoteDescription(dat.offer);
+          const answer = await peer.createAnswer();
+          await pc.setLocalDescription(answer);
+          ws.sendPakcet({ answer: pc.localDescription });
+        } else if (dat.candidate) {
+          await peer.addIceCandidate(dat.candidate);
+        }
+      }
+    };
+
+    peer.ondatachannel = (e) => {
+      e.channel.addEventListener("open", () => {
+        console.log("Connected to peer", sender);
+        ws.close();
+      });
+      this._addRTCDataChannel(peer, e.channel);
+    };
+  }
+
+  _addRTCDataChannel(peer, dc) {
+    const cc = new CerealConnection(dc);
+    cc.setSend(dc.send.bind(dc));
+    cc.setClose(peer.close.bind(peer));
+    dc.onmessage = this._processReceiveData.bind(this, cc);
+    this.connections.add(cc);
+    peer.onconnectionstatechange = (e) => {
+      switch (peer.connectionState) {
+        case "closed":
+          this.removeConnection(cc);
+          console.log("Peer closed");
+          break;
+        case "disconnected":
+        case "failed":
+          this.removeConnection(cc);
+          throw new Error("Peer disconnected or failed to connect");
+          break;
+      }
+    };
+    dc.onclose = () => {
+      peer.close();
+      this.removeConnection(cc);
+      console.log("DataChannel closed");
+    };
+    dc.onerror = (e) => {
+      peer.close();
+      this.removeConnection(cc);
+      console.log("DataChannel error");
+      throw new Error(e);
+    };
+    dc.onopen = () => {
+      this.scratchDv.setUint16(
+        PACKET_TYPES.SOCKET_CONNECT,
+        CONNECTOR_OFFSETS.packetType,
+        true,
+      );
+      let dv = new DataView(
+        this.scratchBuf.slice(0, CONNECTOR_OFFSETS._totalBytes),
+        0,
+        CONNECTOR_OFFSETS._totalBytes,
+      );
+
+      let funcArr = this.onPacketFuncs.get(PACKET_TYPES.SOCKET_CONNECT);
+      for (let func of funcArr) {
+        func(cc, dv.buffer, dv);
+      }
+    };
+    return cc;
   }
 
   _addWorker(worker) {

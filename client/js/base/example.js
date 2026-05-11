@@ -10,5 +10,11 @@ function startServer() {
       "Failed to start serverWorker, make sure you have no errors or typos",
     );
   };
-  client.connector.addConnection(serverWorker);
 }
+startServer();
+setTimeout(async () => {
+  const servers = await fetch("/api/servers");
+  const res = await servers.json();
+  client.connector.makeClientPeer(Object.keys(res)[0]);
+  console.log(res);
+}, 2000);
