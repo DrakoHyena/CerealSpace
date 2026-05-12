@@ -113,7 +113,6 @@ const SERVER_VIEW_OFFSETS = {
 class Server {
   constructor() {
     this.connector = new CerealConnector(MODES.SERVER);
-    this.connector.makeServerPeer();
     this.cs = new CerealSpace(this.connector);
 
     this.players = new Map();
@@ -211,7 +210,42 @@ class Server {
   }
 }
 
-if (typeof window === "undefined" && typeof self !== "undefined") new Server();
+// If in worker context...
+if (typeof window === "undefined" && typeof self !== "undefined") {
+  const server = new Server();
+  const channelIdToCC = new Map();
+
+  self.onmessage = (e) => {
+    const { type, channel, id } = e.data;
+    let cc;
+    switch (type) {
+      case "channel_make":
+        channel.addEventListener("open", () => {
+          console.log("Conncted to client peer from server");
+        });
+
+        channel.addEventListener("error", (e) => {
+          console.log("Failed to maintain data channel");
+          console.error(e);
+          self.postMessage({ type: "channel_close", id: id });
+        });
+
+        channel.addEventListener("close", () => {
+          self.postMessage({ type: "channel_close", id: id });
+        });
+
+        cc = server.connector.addConnection(channel);
+        channelIdToCC.set(id, cc);
+        break;
+
+      case "channel_destroy":
+        cc = channelIdToCC.get(id);
+        if (cc.STATUS !== STATUS.DISCONNECT) cc.close();
+        channelIdToCC.delete(id);
+        break;
+    }
+  };
+}
 
 /*
 function applyForce(pos, size, direction) {

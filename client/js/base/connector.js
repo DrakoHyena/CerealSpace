@@ -223,6 +223,7 @@ class CerealConnector {
   }
 
   removeConnection(cnt) {
+    cnt.STATUS = STATUS.DISCONNECTED;
     const buf = this.scratchU8.slice(
       0,
       addString(this.scratchBuf, "removeConnection called", 0),
@@ -232,21 +233,28 @@ class CerealConnector {
     for (let func of funcArr) {
       func(cnt, buf, dv);
     }
+    this.connections.delete(cnt);
   }
 
   addConnection(input) {
     if (
       input instanceof Worker ||
-      input instanceof DedicatedWorkerGlobalScope
+      (self.DedicatedWorkerGlobalScope &&
+        input instanceof self.DedicatedWorkerGlobalScope)
     ) {
       return this._addWorker(input);
+    } else if (input instanceof RTCDataChannel) {
+      return this._addRTCDataChannel(input);
     }
     throw new Error(
       `Connection type "${typeof input}" is not supported! ${input}`,
     );
   }
 
-  async makeServerPeer() {
+  makeServerPeer(worker) {
+    if (worker instanceof Worker === false) {
+      throw new Error("The first parameter of makeServerPeer must be a Worker");
+    }
     console.log("Making server peer connection");
     console.log("Connecting to singaling server");
     const ws = new WebSocket(
@@ -270,23 +278,41 @@ class CerealConnector {
       console.log("Connected to signaling server");
     };
 
-    const connectingPeers = new Map();
+    const channelIdToPeer = new Map();
+    worker.onmessage = (e) => {
+      const { type, channelId } = e.data;
+      switch (type) {
+        case "channel_close":
+          channelIdToPeer.get(channelId).close();
+          channelIdToPeer.delete(channelId);
+          break;
+      }
+    };
+
+    const connectedPeers = new Map();
     ws.onmessage = async (e) => {
       const dat = JSON.parse(e.data);
       const sender = dat.from;
 
       if (dat.type === "SIGNAL_SOCKET_ID") {
         ws.socketId = dat.socketId;
+      } else if (dat.type === "JOIN") {
+        console.log("New join request from sender", sender);
       }
 
       if (!sender) return;
-      let peer = connectingPeers.get(sender);
+      let peer = connectedPeers.get(sender);
       if (peer === undefined) {
         console.log("Attemping to create peer connection", sender);
-        console.log(this.RTCPeerConnection, self.RTCPeerConnection);
+
         peer = new RTCPeerConnection({
           iceServers: CONFIG.CerealConnector.iceServers,
         });
+
+        const dc = peer.createDataChannel("data");
+        const id = crypto.randomUUID();
+        channelIdToPeer.set(id, peer);
+        worker.postMessage({ type: "channel_make", channel: dc, id: id }, [dc]);
 
         peer.onicecandidate = (e) => {
           if (e.candidate) ws.sendPacket({ candidate: e.candidate });
@@ -298,20 +324,19 @@ class CerealConnector {
           ws.sendPacket({ offer: peer.localDescription }, sender);
         };
 
-        connectingPeers.set(sender, peer);
+        peer.onconnectionstatechange = (e) => {
+          switch (peer.connectionState) {
+            case "disconnected":
+            case "failed":
+              console.log("Peer disconnected or failed to connect");
+              console.error(e);
+              worker.postMessage({ type: "channel_destroy", id: id });
+              connectedPeers.delete(sender);
+              break;
+          }
+        };
 
-        const dc = peer.createDataChannel("data");
-        dc.addEventListener("open", () => {
-          console.log("Connected to peer", sender);
-          connectingPeers.delete(sender);
-        });
-        dc.addEventListener("error", () => {
-          connectingPeers.delete(sender);
-        });
-        dc.addEventListener("close", () => {
-          connectingPeers.delete(sender);
-        });
-        this._addRTCDataChannel(peer, dc);
+        connectedPeers.set(sender, peer);
       }
 
       if (dat.answer) {
@@ -347,7 +372,7 @@ class CerealConnector {
 
     ws.onopen = (e) => {
       console.log("Connected to signaling server");
-      ws.sendPacket({}); // notify them we're connecting
+      ws.sendPacket({ type: "JOIN" }); // notify them we're connecting
     };
 
     console.log("Attempting to create peer connection");
@@ -359,50 +384,54 @@ class CerealConnector {
       if (e.candidate) ws.sendPacket({ candidate: e.candidate });
     };
 
+    peer.onconnectionstatechange = (e) => {
+      switch (peer.connectionState) {
+        case "disconnected":
+        case "failed":
+          console.log("Peer disconnected or failed to connect");
+          console.error(e);
+          break;
+      }
+    };
+
+    let prom = new Promise((res, rej) => {
+      peer.ondatachannel = (e) => {
+        e.channel.addEventListener("open", () => {
+          console.log("Connected to server peer from client");
+          ws.close();
+        });
+        res(e.channel);
+      };
+    });
+
     ws.onmessage = async (e) => {
       const dat = JSON.parse(e.data);
       if (dat.type === "SIGNAL_SOCKET_ID") {
         ws.socketId = dat.socketId;
+      } else if (dat.type === "JOIN") {
+        throw new Error("Client peer connection received join request");
       } else {
         if (dat.offer) {
           await peer.setRemoteDescription(dat.offer);
           const answer = await peer.createAnswer();
-          await pc.setLocalDescription(answer);
-          ws.sendPakcet({ answer: pc.localDescription });
+          await peer.setLocalDescription(answer);
+          ws.sendPacket({ answer: peer.localDescription });
         } else if (dat.candidate) {
           await peer.addIceCandidate(dat.candidate);
         }
       }
     };
 
-    peer.ondatachannel = (e) => {
-      e.channel.addEventListener("open", () => {
-        console.log("Connected to peer", sender);
-        ws.close();
-      });
-      this._addRTCDataChannel(peer, e.channel);
-    };
+    return prom;
   }
 
-  _addRTCDataChannel(peer, dc) {
+  _addRTCDataChannel(dc) {
     const cc = new CerealConnection(dc);
     cc.setSend(dc.send.bind(dc));
-    cc.setClose(peer.close.bind(peer));
+    cc.setClose(dc.close.bind(dc));
     dc.onmessage = this._processReceiveData.bind(this, cc);
     this.connections.add(cc);
-    peer.onconnectionstatechange = (e) => {
-      switch (peer.connectionState) {
-        case "closed":
-          this.removeConnection(cc);
-          console.log("Peer closed");
-          break;
-        case "disconnected":
-        case "failed":
-          this.removeConnection(cc);
-          throw new Error("Peer disconnected or failed to connect");
-          break;
-      }
-    };
+
     dc.onclose = () => {
       peer.close();
       this.removeConnection(cc);
