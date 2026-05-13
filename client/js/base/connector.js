@@ -55,6 +55,15 @@ class CerealConnection {
 
     this.send = () => {};
     this.close = () => {};
+
+    this.onOpens = [];
+  }
+  onOpen(func) {
+    if (this.status === STATUS.OPEN) {
+      func();
+    } else {
+      this.onOpens.push(func);
+    }
   }
   setSend(func) {
     this.send = func;
@@ -191,6 +200,10 @@ class CerealConnector {
         (connectedCheck && cnt.status === STATUS.CONNECTED)
       ) {
         cnt.send(this._processSendData(type, data, cnt));
+      } else {
+        console.warn(
+          `Dropped packet type ${type} for some connection of status ${cnt.status}`,
+        );
       }
     } else {
       for (let cnt of this.connections) {
@@ -199,6 +212,10 @@ class CerealConnector {
           (connectedCheck && cnt.status === STATUS.CONNECTED)
         ) {
           cnt.send(this._processSendData(type, data, cnt));
+        } else {
+          console.warn(
+            `Dropped packet type ${type} for some connection of status ${cnt.status}`,
+          );
         }
       }
     }
@@ -237,13 +254,7 @@ class CerealConnector {
   }
 
   addConnection(input) {
-    if (
-      input instanceof Worker ||
-      (self.DedicatedWorkerGlobalScope &&
-        input instanceof self.DedicatedWorkerGlobalScope)
-    ) {
-      return this._addWorker(input);
-    } else if (input instanceof RTCDataChannel) {
+    if (input instanceof RTCDataChannel) {
       return this._addRTCDataChannel(input);
     }
     throw new Error(
@@ -251,7 +262,7 @@ class CerealConnector {
     );
   }
 
-  makeServerPeer(worker) {
+  async makeServerPeer(worker) {
     if (worker instanceof Worker === false) {
       throw new Error("The first parameter of makeServerPeer must be a Worker");
     }
@@ -289,13 +300,15 @@ class CerealConnector {
       }
     };
 
+    let promRes;
+    const prom = new Promise((res) => (promRes = res));
     const connectedPeers = new Map();
     ws.onmessage = async (e) => {
       const dat = JSON.parse(e.data);
       const sender = dat.from;
-
       if (dat.type === "SIGNAL_SOCKET_ID") {
         ws.socketId = dat.socketId;
+        promRes(dat.socketId);
       } else if (dat.type === "JOIN") {
         console.log("New join request from sender", sender);
       }
@@ -345,6 +358,7 @@ class CerealConnector {
         await peer.addIceCandidate(dat.candidate);
       }
     };
+    return prom;
   }
 
   async makeClientPeer(targetId) {
@@ -432,62 +446,40 @@ class CerealConnector {
     dc.onmessage = this._processReceiveData.bind(this, cc);
     this.connections.add(cc);
 
-    dc.onclose = () => {
+    dc.addEventListener("close", () => {
       peer.close();
       this.removeConnection(cc);
       console.log("DataChannel closed");
-    };
-    dc.onerror = (e) => {
+    });
+    dc.addEventListener("error", (e) => {
       peer.close();
       this.removeConnection(cc);
       console.log("DataChannel error");
       throw new Error(e);
-    };
-    dc.onopen = () => {
-      this.scratchDv.setUint16(
-        PACKET_TYPES.SOCKET_CONNECT,
-        CONNECTOR_OFFSETS.packetType,
-        true,
-      );
-      let dv = new DataView(
-        this.scratchBuf.slice(0, CONNECTOR_OFFSETS._totalBytes),
-        0,
-        CONNECTOR_OFFSETS._totalBytes,
-      );
-
-      let funcArr = this.onPacketFuncs.get(PACKET_TYPES.SOCKET_CONNECT);
-      for (let func of funcArr) {
-        func(cc, dv.buffer, dv);
-      }
-    };
-    return cc;
-  }
-
-  _addWorker(worker) {
-    const cc = new CerealConnection(worker);
-    cc.setSend((data) => worker.postMessage(data.slice()));
-    cc.setClose(
-      this.mode === MODES.CLIENT ? worker.terminate.bind(worker) : () => {},
-    );
-    worker.onmessage = this._processReceiveData.bind(this, cc);
-    this.connections.add(cc);
-    setTimeout(() => {
-      this.scratchDv.setUint16(
-        PACKET_TYPES.SOCKET_CONNECT,
-        CONNECTOR_OFFSETS.packetType,
-        true,
-      );
-      let dv = new DataView(
-        this.scratchBuf.slice(0, CONNECTOR_OFFSETS._totalBytes),
-        0,
-        CONNECTOR_OFFSETS._totalBytes,
-      );
-
-      let funcArr = this.onPacketFuncs.get(PACKET_TYPES.SOCKET_CONNECT);
-      for (let func of funcArr) {
-        func(cc, dv.buffer, dv);
-      }
     });
+    dc.addEventListener("open", () => {
+      this.scratchDv.setUint16(
+        PACKET_TYPES.SOCKET_CONNECT,
+        CONNECTOR_OFFSETS.packetType,
+        true,
+      );
+      let dv = new DataView(
+        this.scratchBuf.slice(0, CONNECTOR_OFFSETS._totalBytes),
+        0,
+        CONNECTOR_OFFSETS._totalBytes,
+      );
+
+      let funcArr = this.onPacketFuncs.get(PACKET_TYPES.SOCKET_CONNECT);
+      for (let func of funcArr) {
+        func(cc, dv.buffer, dv);
+      }
+
+      for (let func of cc.onOpens) {
+        func();
+      }
+      cc.onOpens.length = 0;
+    });
+
     return cc;
   }
 
@@ -524,8 +516,9 @@ class CerealConnector {
         return;
       }
 
-      // Do pre-game stuff like assets here...
+      // Do pre-game stuff with other packets
 
+      // Once preloading is done, OPEN must be called
       this.sendPacket(PACKET_TYPES.OPEN, this.BLANK_DATA, cnt, true);
     });
 
@@ -588,6 +581,13 @@ class CerealConnector {
   }
 
   _processReceiveData(cnt, e) {
+    // WebRTC DataChannels can receive messages before they are open
+    if (cnt.status !== STATUS.OPEN && cnt.status !== STATUS.CONNECTED) {
+      cnt.onOpen(() => {
+        this._processReceiveData(cnt, e);
+      });
+      return;
+    }
     const data = new Uint8Array(e.data);
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const type = dv.getUint16(CONNECTOR_OFFSETS.packetType, true);

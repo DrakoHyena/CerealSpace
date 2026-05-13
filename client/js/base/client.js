@@ -105,6 +105,14 @@ class CerealClient {
   _setUpPackets() {
     this.connector.onPacket(PACKET_TYPES.SOCKET_CONNECT, (cnt, data, dv) => {
       console.log("Established new client connection");
+      // Start opening process
+      this.connector.sendDv.setUint16(0, CONNECTOR_VER, true);
+      this.connector.sendPacket(
+        PACKET_TYPES.CONNECT,
+        this.connector.sendU8.subarray(0, 2),
+        cnt,
+        true,
+      );
     });
 
     this.connector.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {

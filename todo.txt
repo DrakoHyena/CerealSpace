@@ -1,7 +1,9 @@
-- worker around no WebRTC in workers
+- http(s) support
+- Turn server support
 - Rotations
 - Spend a full session cleaning/organizing
   - weed out slice/sub
+  - clean up p2p implementation
 - Document everthing in index.html
   - Sacrifices made, why this was chosen
   - Other ways of doing it for other purposes

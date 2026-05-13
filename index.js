@@ -85,7 +85,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on("connection", (ws) => {
-  ws.send(JSON.stringify({ type: "SIGNAL-SOCKET-ID", socketId: ws.socketId }));
+  ws.send(JSON.stringify({ type: "SIGNAL_SOCKET_ID", socketId: ws.socketId }));
 
   ws.on("message", (msg) => {
     const dat = JSON.parse(msg);
