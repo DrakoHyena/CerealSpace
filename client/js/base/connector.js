@@ -239,18 +239,15 @@ class CerealConnector {
     }
   }
 
-  removeConnection(cnt) {
-    cnt.STATUS = STATUS.DISCONNECTED;
-    const buf = this.scratchU8.slice(
-      0,
-      addString(this.scratchBuf, "removeConnection called", 0),
-    );
+  removeConnection(cnt, reason = "removeConnection called") {
+    if (cnt.status === STATUS.DISCONNECTED) return;
+    const buf = this.scratchBuf.slice(0, addString(reason, this.scratchBuf, 0));
     const dv = new DataView(buf);
     let funcArr = this.onPacketFuncs.get(PACKET_TYPES.DISCONNECT);
     for (let func of funcArr) {
       func(cnt, buf, dv);
     }
-    this.connections.delete(cnt);
+    console.log("Connection removed");
   }
 
   addConnection(input) {
@@ -291,11 +288,12 @@ class CerealConnector {
 
     const channelIdToPeer = new Map();
     worker.onmessage = (e) => {
-      const { type, channelId } = e.data;
+      const { type, id } = e.data;
       switch (type) {
         case "channel_close":
-          channelIdToPeer.get(channelId).close();
-          channelIdToPeer.delete(channelId);
+          const cnt = channelIdToPeer.get(id);
+          if (cnt) cnt.close();
+          channelIdToPeer.delete(id);
           break;
       }
     };
@@ -341,7 +339,7 @@ class CerealConnector {
           switch (peer.connectionState) {
             case "disconnected":
             case "failed":
-              console.log("Peer disconnected or failed to connect");
+              console.log("Server Peer disconnected or failed to connect");
               console.error(e);
               worker.postMessage({ type: "channel_destroy", id: id });
               connectedPeers.delete(sender);
@@ -394,25 +392,44 @@ class CerealConnector {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
-    peer.onicecandidate = (e) => {
+    peer.addEventListener("icecandidate", (e) => {
       if (e.candidate) ws.sendPacket({ candidate: e.candidate });
-    };
+    });
 
-    peer.onconnectionstatechange = (e) => {
+    peer.addEventListener("connectionstatechange", (e) => {
       switch (peer.connectionState) {
         case "disconnected":
         case "failed":
-          console.log("Peer disconnected or failed to connect");
+          console.log(
+            "Client Peer disconnected or failed to connect:",
+            peer.connectionState,
+          );
           console.error(e);
           break;
       }
-    };
+    });
+
+    // data channel closing and close isnt firing when con dropped
 
     let prom = new Promise((res, rej) => {
       peer.ondatachannel = (e) => {
         e.channel.addEventListener("open", () => {
           console.log("Connected to server peer from client");
           ws.close();
+        });
+
+        peer.addEventListener("connectionstatechange", () => {
+          switch (peer.connectionState) {
+            case "disconnected":
+            case "failed":
+              // DataChannels can get stuck half open on sudden disconnects
+              e.channel.close();
+              e.channel.dispatchEvent(new Event("close"));
+              break;
+          }
+        });
+        e.channel.addEventListener("close", () => {
+          peer.close();
         });
         res(e.channel);
       };
@@ -442,20 +459,21 @@ class CerealConnector {
   _addRTCDataChannel(dc) {
     const cc = new CerealConnection(dc);
     cc.setSend(dc.send.bind(dc));
-    cc.setClose(dc.close.bind(dc));
+    cc.setClose(() => {
+      dc.close();
+      dc.dispatchEvent(new Event("close"));
+    });
     dc.onmessage = this._processReceiveData.bind(this, cc);
     this.connections.add(cc);
 
     dc.addEventListener("close", () => {
-      peer.close();
-      this.removeConnection(cc);
       console.log("DataChannel closed");
+      this.removeConnection(cc, "DataChannel Closed");
     });
     dc.addEventListener("error", (e) => {
-      peer.close();
-      this.removeConnection(cc);
       console.log("DataChannel error");
-      throw new Error(e);
+      console.error(e);
+      this.removeConnection(cc, "DataChannel Error");
     });
     dc.addEventListener("open", () => {
       this.scratchDv.setUint16(
@@ -490,7 +508,6 @@ class CerealConnector {
 
     this.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
       cnt.status = STATUS.DISCONNECTED;
-      cnt.close();
       this.connections.delete(cnt);
       console.log(
         this.mode,
@@ -507,8 +524,8 @@ class CerealConnector {
         const slice = this.scratchU8.slice(
           0,
           addString(
-            this.scratchBuf,
             `Connection version mismatch! You: V${version} Target: V${CONNECTOR_VER}`,
+            this.scratchBuf,
             0,
           ),
         );
@@ -631,6 +648,7 @@ class CerealConnector {
 const MAX_STRING_LENGTH = 0xfff;
 const STRING_LENGTH_PADDING = 2;
 function addString(str, buf, index) {
+  buf = new Uint8Array(buf);
   const start = index + STRING_LENGTH_PADDING;
   for (let i = start; i < start + MAX_STRING_LENGTH; i++) {
     const char = str.charCodeAt(i - start);
@@ -646,6 +664,7 @@ function addString(str, buf, index) {
 }
 
 function parseString(buf, index) {
+  buf = new Uint8Array(buf);
   const length = (buf[index + 1] << 8) | buf[index];
   let str = "";
   const start = index + STRING_LENGTH_PADDING;

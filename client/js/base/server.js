@@ -136,6 +136,9 @@ class Server {
     });
 
     this.connector.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
+      const player = this.players.get(cnt);
+      player.entity.sync();
+      this.cs.deleteEntity(player.entity.index);
       this.players.delete(cnt);
     });
 
@@ -240,7 +243,7 @@ if (typeof window === "undefined" && typeof self !== "undefined") {
 
       case "channel_destroy":
         cc = channelIdToCC.get(id);
-        if (cc.STATUS !== STATUS.DISCONNECT) cc.close();
+        if (cc.STATUS !== STATUS.DISCONNECTED) cc.close();
         channelIdToCC.delete(id);
         break;
     }
