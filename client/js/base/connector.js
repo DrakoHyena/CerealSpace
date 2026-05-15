@@ -259,11 +259,7 @@ class CerealConnector {
     );
   }
 
-  async makeServerPeer(worker) {
-    if (worker instanceof Worker === false) {
-      throw new Error("The first parameter of makeServerPeer must be a Worker");
-    }
-    console.log("Making server peer connection");
+  _makeServerWsSignalingConnection(iceServers) {
     console.log("Connecting to singaling server");
     const ws = new WebSocket(
       `ws://${CONFIG.CerealConnector.signalingUrl}/host`,
@@ -272,19 +268,49 @@ class CerealConnector {
       ws.send(JSON.stringify({ ...dat, target: targetId }));
     };
 
-    ws.onerror = (e) => {
+    ws.addEventListener("error", (e) => {
       console.log("Failed to connect to singaling signaling server");
       console.error(e);
-    };
+    });
 
-    ws.onclose = (e) => {
+    ws.addEventListener("close", (e) => {
       console.log("Server connection to the singaling server closed");
       console.log(e);
+    });
+
+    ws.addEventListener("open", (e) => {
+      console.log("Connected to signaling server");
+      ws.sendPacket({
+        type: "SIGNAL_HOST_ICE_SERVERS",
+        servers: iceServers,
+      });
+    });
+    return ws;
+  }
+
+  async makeServerPeer(worker, turnServers = []) {
+    if (worker instanceof Worker === false) {
+      throw new Error("The first parameter of makeServerPeer must be a Worker");
+    }
+    console.log("Making server peer connection");
+
+    const ICE_SERVERS = [...CONFIG.CerealConnector.iceServers, ...turnServers];
+    const wsOnClose = () => {
+      console.log("Retrying signaling server connection in 5 seconds");
+      setTimeout(() => {
+        ws = this._makeServerWsSignalingConnection(ICE_SERVERS);
+        ws.addEventListener("open", () => {
+          ws.addEventListener("message", wsMsg);
+        });
+        ws.addEventListener("close", wsOnClose);
+      }, 5000);
     };
 
-    ws.onopen = (e) => {
-      console.log("Connected to signaling server");
-    };
+    let ws = this._makeServerWsSignalingConnection(ICE_SERVERS);
+    ws.addEventListener("open", () => {
+      ws.addEventListener("message", wsMsg);
+    });
+    ws.addEventListener("close", wsOnClose);
 
     const channelIdToPeer = new Map();
     worker.onmessage = (e) => {
@@ -301,7 +327,7 @@ class CerealConnector {
     let promRes;
     const prom = new Promise((res) => (promRes = res));
     const connectedPeers = new Map();
-    ws.onmessage = async (e) => {
+    async function wsMsg(e) {
       const dat = JSON.parse(e.data);
       const sender = dat.from;
       if (dat.type === "SIGNAL_SOCKET_ID") {
@@ -317,7 +343,7 @@ class CerealConnector {
         console.log("Attemping to create peer connection", sender);
 
         peer = new RTCPeerConnection({
-          iceServers: CONFIG.CerealConnector.iceServers,
+          iceServers: ICE_SERVERS,
         });
 
         const dc = peer.createDataChannel("data");
@@ -355,11 +381,11 @@ class CerealConnector {
       } else if (dat.candidate) {
         await peer.addIceCandidate(dat.candidate);
       }
-    };
+    }
     return prom;
   }
 
-  async makeClientPeer(targetId) {
+  async makeClientPeer(targetId, iceServers) {
     console.log("Making client peer connection");
     console.log("Connecting to signaling server");
 
@@ -389,7 +415,7 @@ class CerealConnector {
 
     console.log("Attempting to create peer connection");
     const peer = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: iceServers,
     });
 
     peer.addEventListener("icecandidate", (e) => {

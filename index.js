@@ -88,11 +88,26 @@ wss.on("connection", (ws) => {
   ws.send(JSON.stringify({ type: "SIGNAL_SOCKET_ID", socketId: ws.socketId }));
 
   ws.on("message", (msg) => {
-    const dat = JSON.parse(msg);
-    let targWs = conns.get(dat.target);
-    if (!targWs) return;
-    dat.from = ws.socketId;
-    targWs.send(JSON.stringify(dat));
+    try {
+      const dat = JSON.parse(msg);
+
+      switch (dat.type) {
+        case "SIGNAL_HOST_ICE_SERVERS":
+          if (ws.isHost !== true) return;
+          rooms[ws.socketId].iceServers = dat.servers?.length
+            ? dat.servers
+            : [{ urls: "stun:stun.l.google.com:19302" }];
+          break;
+        default:
+          let targWs = conns.get(dat.target);
+          if (!targWs) return;
+          dat.from = ws.socketId;
+          targWs.send(JSON.stringify(dat));
+          break;
+      }
+    } catch (e) {
+      console.error(e);
+    }
   });
 
   ws.on("close", () => {
@@ -117,7 +132,11 @@ server.on("upgrade", (req, socket, head) => {
     ws.socketId = crypto.randomUUID();
     ws.isHost = isHost;
     conns.set(ws.socketId, ws);
-    if (isHost) rooms[ws.socketId] = { created: Date.now() };
+    if (isHost)
+      rooms[ws.socketId] = {
+        created: Date.now(),
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      };
 
     wss.emit("connection", ws);
   });

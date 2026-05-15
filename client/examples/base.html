@@ -3,7 +3,26 @@
 <head>
     <link rel="stylesheet" href="/playStyle.css">
     <style>
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            z-index: 0;
+        }
+
+        button {
+            transition: 200ms;
+        }
+
+        button:hover {
+            filter: brightness(.8);
+            scale: 1.01;
+        }
+
         #container {
+            position: absolute;
+            left: 0;
+            top: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -13,6 +32,7 @@
             height: 100%;
             color: white;
             background: black;
+            z-index: 100;
         }
 
         #container>div {
@@ -21,9 +41,26 @@
             width: 30vh;
             background: #363636;
             padding: 5px;
+            border-bottom-style: solid;
+            border-color: #000000 !important;
+            border-width: 1px;
+
         }
 
-        #serverlist {}
+        #hostSettingsDiv {
+            text-align: left;
+        }
+
+        #serverlist>div {
+            display: flex;
+            flex-direction: column;
+            border: solid black 2px;
+            transition: 200ms;
+        }
+
+        #serverlist>div:hover {
+            scale: 1.01;
+        }
     </style>
 </head>
 
@@ -34,7 +71,32 @@
         <div id="titlescreen">
             <h1>Cereal Space</h1>
             <button id="host">Host Server</button>
+            <button id="hostSettings">Host Settings</button>
             <button id="quickJoin">Quick Join</button>
+        </div>
+        <div id="hostSettingsDiv" style="display: none;">
+            <h2>Host Settings</h2>
+            <h3>Turn Server Settings</h3>
+            <p>
+                TURN Servers allow users behind certain network types like work and academic ones to connect to your
+                server.
+                This affects some portion of regular users as well.
+            </p>
+            <p>
+                When hosting, the data entered below will be posted <b>publically</b> with your server listing!
+                Take care in using timed credentials or temporary ones, selectively hosting your server is <i>not</i>
+                enough.
+            </p>
+            <br>
+            <span>Turn URL: <input type="text" id="turnUrl" placeholder="turn(s):127.0.0.1:3478" /></span>
+            <br>
+            <span>Turn Username: <input type="text" id="turnUsername" placeholder="Username" /></span>
+            <br>
+            <span>Turn Password: <input type="text" id="turnPassword" placeholder="Password" /></span>
+
+        </div>
+        <div style="border-bottom: none;">
+            <h2>Servers</h2>
         </div>
         <div id="serverList">
             <p><i>Loading Servers...</i></p>
