@@ -10,98 +10,6 @@ import {
   U32_PER_HEADER,
 } from "/js/base/entity.js";
 
-let avgTick = 0;
-
-function tickCerealSpace(cs) {
-  let s = performance.now();
-
-  cs.loopEntities((entity) => {
-    // Movement
-    movement(entity);
-
-    // Collision
-    if (cs.tick % CONFIG.CerealSpace.collisionInterval === 0)
-      cs.getCollisions(entity, collide);
-
-    // Engine
-    keepInBounds(cs, entity);
-  });
-  if (cs.tick % CONFIG.CerealSpace.sortInterval === 0) cs.sort();
-
-  avgTick *= 0.95;
-  avgTick += 0.05 * (performance.now() - s);
-  cs.tick++;
-  cs._updateSpaceInfo();
-}
-
-function movement(entity) {
-  if (entity.vx === 0 && entity.vy === 0) return;
-  entity.px += entity.vx;
-  entity.py += entity.vy;
-  entity.vx *= 0.95;
-  entity.vy *= 0.95;
-}
-
-function collide(entityA, entityB, damper = 0.9) {
-  const centerDistanceX =
-    entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
-  const centerDistanceY =
-    entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
-
-  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
-  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
-
-  if (overlapX < overlapY) {
-    const directionX = centerDistanceX >= 0 ? 1 : -1;
-    const impulseX = overlapX * 0.5 * directionX;
-    entityA.vx += Math.round(impulseX * damper);
-    entityB.vx -= Math.round(impulseX * damper);
-  } else {
-    const directionY = centerDistanceY >= 0 ? 1 : -1;
-    const impulseY = overlapY * 0.5 * directionY;
-    entityA.vy += Math.round(impulseY * damper);
-    entityB.vy -= Math.round(impulseY * damper);
-  }
-}
-
-function keepInBounds(cs, ent) {
-  const padding = cs.padding;
-  const csW = cs.width - padding;
-  const csH = cs.height - padding;
-  const w = ent.w;
-  const h = ent.h;
-
-  // -,-
-  let x1 = ent.px;
-  let y1 = ent.py;
-  let x2 = x1 + w;
-  let y2 = y1 + h;
-  if (x2 < padding) {
-    x1 = ent.px = csW - w;
-  } else if (x1 < padding) {
-    x1 = ent.px = padding;
-  }
-  if (y2 < padding) {
-    y1 = ent.py = csH - h;
-  } else if (y1 < padding) {
-    y1 = ent.py = padding;
-  }
-
-  // +,+
-  x2 = x1 + w;
-  y2 = y1 + h;
-  if (csW < x1) {
-    ent.px = padding;
-  } else if (csW < x2) {
-    ent.px = csW - w;
-  }
-  if (csH < y1) {
-    ent.py = padding;
-  } else if (csH < y2) {
-    ent.py = csH - h;
-  }
-}
-
 const SPACE_INFO_OFFSETS = {
   width: 0, // 2
   height: 2, // 2
@@ -189,7 +97,19 @@ class CerealSpace {
     this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
     this._queryEntity = new CerealEntity(this, BYTES_PER_HEADER);
 
+    this.avgTickTime = 0;
     this.tick = 0;
+    this._updateSpaceInfo();
+  }
+
+  tickSpace(tickFunc) {
+    let s = performance.now();
+
+    tickFunc();
+
+    this.avgTickTime *= 0.95;
+    this.avgTickTime += 0.05 * (performance.now() - s);
+    this.tick++;
     this._updateSpaceInfo();
   }
 
@@ -531,7 +451,7 @@ class CerealSpace {
     );
     this.spaceInfoView.setUint32(
       SPACE_INFO_OFFSETS.tickTime,
-      avgTick * 100,
+      this.avgTickTime * 100,
       true,
     );
   }
@@ -547,4 +467,4 @@ for (let i = 0; i < 65536; i++) {
   MORTON_LUT[i] = x;
 }
 
-export { CerealSpace, tickCerealSpace, SPACE_INFO_OFFSETS };
+export { CerealSpace, SPACE_INFO_OFFSETS };

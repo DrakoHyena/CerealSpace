@@ -58,6 +58,8 @@ class CerealClient {
     this._setUpEvents();
     this._render();
     this._controlLoop();
+
+    window.addEventListener("resize", this._resize.bind(this));
   }
 
   _render() {
@@ -70,7 +72,7 @@ class CerealClient {
 
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
-    const zoom = canvas.width / (camera.fov * 2);
+    const zoom = canvas.height / (camera.fov * 2);
     ctx.scale(zoom, zoom);
     ctx.translate(-camera.x, -camera.y);
 

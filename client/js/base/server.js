@@ -1,4 +1,5 @@
-import { CerealSpace, tickCerealSpace } from "/js/base/space.js";
+import { CONFIG } from "/js/base/config.js";
+import { CerealSpace } from "/js/base/space.js";
 import {
   CerealEntity,
   BYTES_PER_BLOCK,
@@ -121,6 +122,21 @@ class Server {
     this._setUpLoops();
   }
 
+  csTick() {
+    this.cs.loopEntities((entity) => {
+      // Movement
+      movement(entity);
+
+      // Collision
+      if (this.cs.tick % CONFIG.CerealSpace.collisionInterval === 0)
+        this.cs.getCollisions(entity, collide);
+
+      // Engine
+      keepInBounds(this.cs, entity);
+    });
+    if (this.cs.tick % CONFIG.CerealSpace.sortInterval === 0) this.cs.sort();
+  }
+
   _setUpPackets() {
     this.connector.onPacket(PACKET_TYPES.SOCKET_CONNECT, (cnt, data, dv) => {
       console.log("Established new server connection");
@@ -138,7 +154,7 @@ class Server {
     this.connector.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
       const player = this.players.get(cnt);
       player.entity.sync();
-      this.cs.deleteEntity(player.entity.index);
+      if (player.entity.exists) this.cs.deleteEntity(player.entity.index);
       this.players.delete(cnt);
     });
 
@@ -154,6 +170,18 @@ class Server {
     setInterval(() => {
       this.connector.sendPacket(PACKET_TYPES.SPACE_INFO, this.cs.spaceInfoBuf);
     }, 1000 / 2);
+
+    // Misc. Player ticks
+    setInterval(() => {
+      for (let [cnt, player] of this.players) {
+        player.tick();
+      }
+    }, 1000 / 8);
+
+    // Tick Space
+    setInterval(() => {
+      this.cs.tickSpace(this.csTick.bind(this));
+    }, 1000 / 30);
 
     // Update views
     setInterval(() => {
@@ -198,18 +226,74 @@ class Server {
         );
       }
     }, 1000 / 30);
+  }
+}
 
-    // Misc. Player ticks
-    setInterval(() => {
-      for (let [cnt, player] of this.players) {
-        player.tick();
-      }
-    }, 1000 / 8);
+function movement(entity) {
+  if (entity.vx === 0 && entity.vy === 0) return;
+  entity.px += entity.vx;
+  entity.py += entity.vy;
+  entity.vx *= 0.95;
+  entity.vy *= 0.95;
+}
 
-    // Tick Space
-    setInterval(() => {
-      tickCerealSpace(this.cs);
-    }, 1000 / 30);
+function collide(entityA, entityB, damper = 0.9) {
+  const centerDistanceX =
+    entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
+  const centerDistanceY =
+    entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
+
+  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
+
+  if (overlapX < overlapY) {
+    const directionX = centerDistanceX >= 0 ? 1 : -1;
+    const impulseX = overlapX * 0.5 * directionX;
+    entityA.vx += Math.round(impulseX * damper);
+    entityB.vx -= Math.round(impulseX * damper);
+  } else {
+    const directionY = centerDistanceY >= 0 ? 1 : -1;
+    const impulseY = overlapY * 0.5 * directionY;
+    entityA.vy += Math.round(impulseY * damper);
+    entityB.vy -= Math.round(impulseY * damper);
+  }
+}
+
+function keepInBounds(cs, ent) {
+  const padding = cs.padding;
+  const csW = cs.width - padding;
+  const csH = cs.height - padding;
+  const w = ent.w;
+  const h = ent.h;
+
+  // -,-
+  let x1 = ent.px;
+  let y1 = ent.py;
+  let x2 = x1 + w;
+  let y2 = y1 + h;
+  if (x2 < padding) {
+    x1 = ent.px = csW - w;
+  } else if (x1 < padding) {
+    x1 = ent.px = padding;
+  }
+  if (y2 < padding) {
+    y1 = ent.py = csH - h;
+  } else if (y1 < padding) {
+    y1 = ent.py = padding;
+  }
+
+  // +,+
+  x2 = x1 + w;
+  y2 = y1 + h;
+  if (csW < x1) {
+    ent.px = padding;
+  } else if (csW < x2) {
+    ent.px = csW - w;
+  }
+  if (csH < y1) {
+    ent.py = padding;
+  } else if (csH < y2) {
+    ent.py = csH - h;
   }
 }
 

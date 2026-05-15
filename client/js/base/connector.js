@@ -14,16 +14,6 @@ const PACKET_TYPES = {
   VIEW: 7,
 };
 
-const MODES = {
-  SERVER: 0,
-  CLIENT: 1,
-};
-
-const CACHE_MODES = {
-  SPACE_INFO: MODES.SERVER,
-  VIEW: MODES.SERVER,
-};
-
 const CONNECTOR_OFFSETS = {
   packetType: 0, // 2
   _totalBytes: 2,
@@ -34,6 +24,16 @@ const STATUS = {
   CONNECTING: 1,
   CONNECTED: 2,
   OPEN: 3,
+};
+
+const MODES = {
+  SERVER: 0,
+  CLIENT: 1,
+};
+
+const CACHE_MODES = {
+  SPACE_INFO: MODES.SERVER,
+  VIEW: MODES.SERVER,
 };
 
 for (let key in PACKET_TYPES) {
@@ -56,22 +56,18 @@ class CerealConnection {
     this.send = () => {};
     this.close = () => {};
 
-    this.onOpens = [];
+    this._openQueue = [];
   }
-  onOpen(func) {
-    if (this.status === STATUS.OPEN) {
-      func();
-    } else {
-      this.onOpens.push(func);
-    }
-  }
+
   setSend(func) {
     this.send = func;
   }
+
   setClose(func) {
     this.close = func;
   }
-  diffPacketAndCache(type, newPacket) {
+
+  processSendCache(type, newPacket) {
     if (this.packetCache[type] === undefined) {
       const cacheBuf = new ArrayBuffer(SEND_BUF_SIZE);
       this.packetCache[type] = new Uint8Array(
@@ -139,7 +135,8 @@ class CerealConnection {
     this.packetCache[type].set(newPacket, 0);
     return this.diff.subarray(0, dvIndex);
   }
-  applyDiffAndCache(diffPacket, dv) {
+
+  processReceiveCache(diffPacket, dv) {
     let i = 0;
     const type = dv.getUint16(i, true);
     i += 2;
@@ -167,6 +164,14 @@ class CerealConnection {
       i += eLen;
     }
     return [type, cachePacket];
+  }
+
+  onOpen(func) {
+    if (this.status === STATUS.OPEN) {
+      func();
+    } else {
+      this._openQueue.push(func);
+    }
   }
 }
 
@@ -325,7 +330,10 @@ class CerealConnector {
     };
 
     let promRes;
-    const prom = new Promise((res) => (promRes = res));
+    const prom = new Promise((res) => {
+      console.log("Server Ready");
+      promRes = res;
+    });
     const connectedPeers = new Map();
     async function wsMsg(e) {
       const dat = JSON.parse(e.data);
@@ -435,8 +443,6 @@ class CerealConnector {
       }
     });
 
-    // data channel closing and close isnt firing when con dropped
-
     let prom = new Promise((res, rej) => {
       peer.ondatachannel = (e) => {
         e.channel.addEventListener("open", () => {
@@ -518,10 +524,10 @@ class CerealConnector {
         func(cc, dv.buffer, dv);
       }
 
-      for (let func of cc.onOpens) {
+      for (let func of cc._openQueue) {
         func();
       }
-      cc.onOpens.length = 0;
+      cc._openQueue.length = 0;
     });
 
     return cc;
@@ -570,7 +576,7 @@ class CerealConnector {
     });
 
     this.onPacket(PACKET_TYPES.CACHE_UPDATE, (cnt, data, dv) => {
-      const [type, newPacket] = cnt.applyDiffAndCache(data, dv);
+      const [type, newPacket] = cnt.processReceiveCache(data, dv);
       const newDv = new DataView(
         newPacket.buffer,
         newPacket.byteOffset,
@@ -596,7 +602,7 @@ class CerealConnector {
 
     const diffPacket =
       CACHE_MODES[type] === this.mode
-        ? cnt.diffPacketAndCache(type, data)
+        ? cnt.processSendCache(type, data)
         : false;
     if (diffPacket === false) {
       // Actual packet
@@ -671,6 +677,8 @@ class CerealConnector {
   }
 }
 
+// Send buf size is 0xffff
+// Ideally string length is managed per packet; you expect certain lengths
 const MAX_STRING_LENGTH = 0xfff;
 const STRING_LENGTH_PADDING = 2;
 function addString(str, buf, index) {

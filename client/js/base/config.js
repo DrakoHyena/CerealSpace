@@ -42,8 +42,15 @@ const CONFIG = {
      */
     padding: 0,
   },
+
   CerealConnector: {
+    // The server URL for servers and such, how peers connect
     signalingUrl: "localhost:3000",
+
+    /*
+     * The default servers used for p2p
+     * Turn servers can be included
+     */
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   },
 };

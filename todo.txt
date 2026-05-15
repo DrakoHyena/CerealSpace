@@ -1,5 +1,5 @@
 - http(s) support
-- Turn server support
+- client misc
 - Rotations
 - Spend a full session cleaning/organizing
   - weed out slice/sub
