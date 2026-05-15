@@ -1,9 +1,9 @@
 - http(s) support
 - client misc
+- WS/WebRTC message limts
 - Rotations
 - Spend a full session cleaning/organizing
   - weed out slice/sub
-  - clean up p2p implementation
 - Document everthing in index.html
   - Sacrifices made, why this was chosen
   - Other ways of doing it for other purposes
