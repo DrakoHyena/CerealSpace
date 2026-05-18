@@ -1,15 +1,18 @@
-const [CEREAL_ENTITY_OFFSETS, CEREAL_U32_ENTITY_OFFSETS] = generateEntityOffsets({
-  px: 2,
-  py: 2,
-  vx: 4,
-  vy: 4,
-  w: 2,
-  h: 2,
-});
+const [CEREAL_ENTITY_OFFSETS, CEREAL_U32_ENTITY_OFFSETS] =
+  generateEntityOffsets({
+    px: 2,
+    py: 2,
+    vx: 4,
+    vy: 4,
+    w: 2,
+    h: 2,
+    clientId: 4,
+  });
 
-const [CEREAL_HEADER_OFFSETS, CEREAL_U32_HEADER_OFFSETS] = generateEntityOffsets({
-  id: 4,
-});
+const [CEREAL_HEADER_OFFSETS, CEREAL_U32_HEADER_OFFSETS] =
+  generateEntityOffsets({
+    id: 4,
+  });
 
 const BYTES_PER_ENTITY = CEREAL_ENTITY_OFFSETS._totalBytes;
 const BYTES_PER_HEADER = CEREAL_HEADER_OFFSETS._totalBytes;
@@ -80,6 +83,21 @@ class CerealEntity {
   set h(v) {
     this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.h, v, true);
   }
+
+  get clientId() {
+    return this.cs.dv.getUint16(
+      this.index + CEREAL_ENTITY_OFFSETS.clientId,
+      true,
+    );
+  }
+
+  set clientId(v) {
+    return this.cs.dv.getUint16(
+      this.index + CEREAL_ENTITY_OFFSETS.clientId,
+      v,
+      true,
+    );
+  }
 }
 
 function generateEntityOffsets(obj) {
@@ -134,7 +152,6 @@ function generateEntityOffsets(obj) {
 
   return [convertedOffset, convertedOffsetU32];
 }
-
 
 export {
   CerealEntity,

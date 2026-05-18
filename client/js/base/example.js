@@ -65,6 +65,9 @@ async function hostServer() {
     );
   };
 
+  // Make a WebRTCPeer-less Cereal Peer to init our signaling connection/posting
+  // This is fine since all server peers share one ws
+  // Looks jank, however this is simply baked into it :)
   const cerealPeer = new CerealPeer(MODES.SERVER, undefined, serverWorker);
   cerealPeer.iceServers = turnUrlValue.startsWith("turn")
     ? [
@@ -83,7 +86,6 @@ async function hostServer() {
     console.log("Cereal Peer opened");
     res(cerealPeer.ws.socketId);
   });
-  console.log(cerealPeer);
   return prom;
 }
 

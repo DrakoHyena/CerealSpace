@@ -1,7 +1,4 @@
-- multidatachannel 
-  - state refreshes for packets
 - http(s) support
-- client misc
 - WS/WebRTC message limts
 - Rotations
 - Spend a full session cleaning/organizing

@@ -47,6 +47,7 @@ class CerealConnection {
   constructor(cnt) {
     this.cnt = cnt;
     this.packetCache = {};
+    this.sendCacheAmounts = {};
 
     this.status = STATUS.CONNECTING;
 
@@ -87,6 +88,16 @@ class CerealConnection {
         newPacket.byteLength,
       );
       this.packetCache[type].set(newPacket, 0);
+      this.sendCacheAmounts[type] = 0;
+      return false;
+    }
+
+    if (
+      this.sendCacheAmounts[type]++ >
+      CONFIG.CerealConnector.cacheStateRefreshAmount
+    ) {
+      this.packetCache[type].set(newPacket, 0);
+      this.sendCacheAmounts[type] = 0;
       return false;
     }
 
@@ -200,6 +211,11 @@ class CerealPeer {
 
     this.targetPeerId = targetPeerId;
 
+    this.worker = worker;
+    if (this.mode === MODES.SERVER && this.worker instanceof Worker === false) {
+      throw new Error("Server peers must have a valid Worker");
+    }
+
     this.ws;
     this.iceServers = CONFIG.CerealConnector.iceServers;
     if (this.mode === MODES.SERVER) {
@@ -210,15 +226,9 @@ class CerealPeer {
       }
       this.ws.addEventListener("newCon", () => {
         this.ws = serverSignalingWs;
-        this._setUpWs();
       });
     } else if (this.mode === MODES.CLIENT) {
       this.ws = this._makeWsConnection();
-    }
-
-    this.worker = worker;
-    if (this.mode === MODES.SERVER && this.worker instanceof Worker === false) {
-      throw new Error("Server peers must have a valid Worker");
     }
 
     this.hasOpened = false;
@@ -227,7 +237,6 @@ class CerealPeer {
     this._customMessages = [];
     this._customOpens = [];
     this._wsOpenCustoms = [];
-    if (this.mode !== undefined) this._setUpWs();
   }
 
   setUpDataChannel(dc) {
@@ -351,81 +360,6 @@ class CerealPeer {
     }
   }
 
-  _setUpWs() {
-    if (this.mode === MODES.SERVER) {
-      // Only for the non-connection host instance on main thread NOT server thread
-      if (this.targetPeerId === undefined) {
-        this.ws.addEventListener("message", async (e) => {
-          const dat = JSON.parse(e.data);
-          const sender = dat.from;
-          if (!sender) return;
-          let cerealPeer = serverPeers.get(sender);
-          if (cerealPeer === undefined) {
-            console.log(
-              "Attempting to create a connection from server peer to client peer",
-            );
-            cerealPeer = new CerealPeer(this.mode, sender, this.worker);
-            cerealPeer.makeServerPeer(this.iceServers);
-            serverPeers.set(sender, cerealPeer);
-          }
-
-          if (dat.answer) {
-            await cerealPeer.peer.setRemoteDescription(dat.answer);
-          } else if (dat.candidate) {
-            await cerealPeer.peer.addIceCandidate(dat.candidate);
-          }
-        });
-
-        this.worker.addEventListener("message", (e) => {
-          const { type, id } = e.data;
-          let cerealPeer;
-          switch (type) {
-            case "peer_open":
-              cerealPeer = serverPeers.get(id);
-              for (let dc of cerealPeer.dataChannels) {
-                dc.dispatchEvent(new Event("open"));
-              }
-              break;
-            case "close_peer":
-              cerealPeer = serverPeers.get(id);
-              if (cerealPeer) cerealPeer.close();
-              serverPeers.delete(id);
-              break;
-          }
-        });
-      }
-    } else if (this.mode === MODES.CLIENT) {
-      this.ws.addEventListener("message", async (e) => {
-        const dat = JSON.parse(e.data);
-        if (dat.offer) {
-          await this.peer.setRemoteDescription(dat.offer);
-          const ans = await this.peer.createAnswer();
-          await this.peer.setLocalDescription(ans);
-          this.ws.sendPacket(
-            { answer: this.peer.localDescription },
-            this.targetPeerId,
-          );
-        } else if (dat.candidate) {
-          await this.peer.addIceCandidate(dat.candidate);
-        }
-      });
-    }
-
-    this.ws.addEventListener("close", (e) => {
-      console.log(
-        `Signaling Server connection (${this.mode === MODES.SERVER ? "SERVER" : this.mode === MODES.CLIENT ? "CLIENT" : "UNKNOWN"}) closed`,
-      );
-      console.log(e);
-    });
-
-    this.ws.addEventListener("error", (e) => {
-      console.log(
-        `Signaling Server connection (${this.mode === MODES.SERVER ? "SERVER" : this.mode === MODES.CLIENT ? "CLIENT" : "UNKNOWN"}) error`,
-      );
-      console.error(e);
-    });
-  }
-
   _makeWsConnection() {
     console.log("Connecting to singaling server");
 
@@ -444,7 +378,7 @@ class CerealPeer {
     };
 
     if (this.mode === MODES.SERVER) {
-      ws.addEventListener("message", (e) => {
+      ws.addEventListener("message", async (e) => {
         const dat = JSON.parse(e.data);
         const sender = dat.from;
 
@@ -456,7 +390,45 @@ class CerealPeer {
         } else if (dat.type === "JOIN") {
           console.log("New join request from", sender);
         }
+
+        if (!sender) return;
+        let cerealPeer = serverPeers.get(sender);
+        if (cerealPeer === undefined) {
+          console.log(
+            "Attempting to create a connection from server peer to client peer",
+          );
+          cerealPeer = new CerealPeer(this.mode, sender, this.worker);
+          cerealPeer.makeServerPeer(this.iceServers);
+          serverPeers.set(sender, cerealPeer);
+        }
+
+        if (dat.answer) {
+          await cerealPeer.peer.setRemoteDescription(dat.answer);
+        } else if (dat.candidate) {
+          await cerealPeer.peer.addIceCandidate(dat.candidate);
+        }
       });
+
+      if (this.worker.setUp !== true) {
+        this.worker.setUp = true;
+        this.worker.addEventListener("message", (e) => {
+          const { type, id } = e.data;
+          let cerealPeer;
+          switch (type) {
+            case "peer_open":
+              cerealPeer = serverPeers.get(id);
+              for (let dc of cerealPeer.dataChannels) {
+                dc.dispatchEvent(new Event("open"));
+              }
+              break;
+            case "close_peer":
+              cerealPeer = serverPeers.get(id);
+              if (cerealPeer) cerealPeer.close();
+              serverPeers.delete(id);
+              break;
+          }
+        });
+      }
 
       ws.addEventListener("close", (e) => {
         console.log(
@@ -470,6 +442,25 @@ class CerealPeer {
           serverSignalingWs = this._makeWsConnection();
           oldWs.dispatchEvent(new Event("newCon"));
         }, serverReconTime);
+      });
+    } else if (this.mode === MODES.CLIENT) {
+      ws.addEventListener("message", async (e) => {
+        const dat = JSON.parse(e.data);
+        if (dat.offer) {
+          await this.peer.setRemoteDescription(dat.offer);
+          const ans = await this.peer.createAnswer();
+          await this.peer.setLocalDescription(ans);
+          this.ws.sendPacket(
+            { answer: this.peer.localDescription },
+            this.targetPeerId,
+          );
+        } else if (dat.candidate) {
+          await this.peer.addIceCandidate(dat.candidate);
+        }
+      });
+
+      ws.addEventListener("close", () => {
+        console.log("Client connection to signaling server closed");
       });
     }
 
@@ -585,7 +576,7 @@ class CerealConnector {
         cnt.status === STATUS.OPEN ||
         (connectedCheck && cnt.status === STATUS.CONNECTED)
       ) {
-        cnt.sendReliable(this._processSendData(type, data, cnt));
+        cnt.sendUnreliable(this._processSendData(type, data, cnt));
       } else {
         console.warn(
           `Dropped packet type ${type} for some connection of status ${cnt.status}`,
@@ -755,6 +746,7 @@ class CerealConnector {
       CACHE_MODES[type] === this.mode
         ? cnt.processSendCache(type, data)
         : false;
+
     if (diffPacket === false) {
       // Actual packet
       this.headerDv.setUint16(CONNECTOR_OFFSETS.packetType, type, true);

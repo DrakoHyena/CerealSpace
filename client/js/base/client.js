@@ -8,6 +8,7 @@ import {
 import { SPACE_INFO_OFFSETS } from "/js/base/space.js";
 import { CerealEntity, BYTES_PER_ENTITY } from "/js/base/entity.js";
 import { SERVER_VIEW_OFFSETS } from "/js/base/server.js";
+import { CONFIG } from "/js/base/config.js";
 
 const CLIENT_CONTROL_OFFSETS = {
   mx: 0, // 2
@@ -21,6 +22,8 @@ const CLIENT_CONTROL_OFFSETS = {
   _totalBytes: SEND_BUF_SIZE,
 };
 
+const lerp = (x, y, a) => x * (1 - a) + y * a;
+
 class CerealClient {
   constructor(canvas) {
     this.canvas = canvas;
@@ -32,6 +35,13 @@ class CerealClient {
     this.bgGradient.addColorStop(1, "#1D9D88");
 
     this.entityBuf = new Uint8Array(0);
+    this.renderDict = new Uint8Array(
+      CONFIG.CerealClient.maxEntities * BYTES_PER_ENTITY,
+    );
+    this.prevDict = new Uint8Array(
+      CONFIG.CerealClient.maxEntities * BYTES_PER_ENTITY,
+    );
+
     this.spaceInfo = {
       width: 1,
       height: 1,
@@ -43,6 +53,12 @@ class CerealClient {
       x: 0,
       y: 0,
       fov: 1,
+      renderX: 0,
+      renderY: 0,
+      renderFov: 1,
+      startX: 0,
+      startY: 0,
+      startFov: 1,
     };
 
     this.controlBuf = new ArrayBuffer(SEND_BUF_SIZE);
@@ -51,6 +67,12 @@ class CerealClient {
     this.controlIndex = CLIENT_CONTROL_OFFSETS.keyLog;
 
     this.avgRender = 0;
+    this.lastViewPacket = Date.now();
+    this.avgViewMs = 0;
+    this.lastRender = performance.now();
+    this.avgFrameMs = 0;
+
+    this.viewLerp = 1;
 
     this.connector = new CerealConnector(MODES.CLIENT);
     this._setUpPackets();
@@ -62,9 +84,74 @@ class CerealClient {
     window.addEventListener("resize", this._resize.bind(this));
   }
 
+  _lerp() {
+    // Camera
+    this.camera.renderX = lerp(
+      this.camera.startX,
+      this.camera.x,
+      this.viewLerp,
+    );
+    this.camera.renderY = lerp(
+      this.camera.startY,
+      this.camera.y,
+      this.viewLerp,
+    );
+    this.camera.renderFov = lerp(
+      this.camera.startFov,
+      this.camera.fov,
+      this.viewLerp,
+    );
+
+    // Entities
+    const dvA = new DataView(
+      this.entityBuf.buffer,
+      this.entityBuf.byteOffset,
+      this.entityBuf.byteLength,
+    );
+    let entityNet = new CerealEntity({ dv: dvA }, 0, true); // cannot call sync
+    const dvB = new DataView(this.renderDict.buffer);
+    let entityRen = new CerealEntity({ dv: dvB }, 0, true); // cannot call sync
+    const dvC = new DataView(this.prevDict.buffer);
+    let entityPrv = new CerealEntity({ dv: dvC }, 0, true); // cannot call sync
+
+    for (let i = 0; i < this.entityBuf.byteLength; i += BYTES_PER_ENTITY) {
+      entityNet.index = i;
+      entityRen.index = entityNet.clientId * BYTES_PER_ENTITY;
+      entityPrv.index = entityRen.index;
+
+      // lerp any values here...
+      // Note: Technically you only need to care
+      // about the values you actually use in the client.
+      // Here I have done them all as an example
+      entityRen.px = lerp(entityPrv.px, entityNet.px, this.viewLerp);
+      entityRen.py = lerp(entityPrv.py, entityNet.py, this.viewLerp);
+      entityRen.vx = lerp(entityPrv.vx, entityNet.vx, this.viewLerp);
+      entityRen.vy = lerp(entityPrv.vy, entityNet.vy, this.viewLerp);
+      entityRen.w = lerp(entityPrv.w, entityNet.w, this.viewLerp);
+      entityRen.h = lerp(entityPrv.h, entityNet.h, this.viewLerp);
+      entityRen.clientId = entityNet.clientId;
+    }
+  }
+
   _render() {
     requestAnimationFrame(this._render.bind(this));
-    let { canvas, ctx, camera, spaceInfo, avgRender, entityBuf } = this;
+    this.avgFrameMs =
+      this.avgFrameMs * 0.95 + (performance.now() - this.lastRender) * 0.05;
+    this.lastRender = performance.now();
+
+    this.viewLerp =
+      Math.max(
+        0,
+        Math.min(
+          2,
+          //this.viewLerp * 0.95 +
+          (Date.now() - this.lastViewPacket) / this.avgViewMs,
+        ),
+      ) || 0.01;
+
+    this._lerp();
+
+    let { canvas, ctx, camera, spaceInfo, entityBuf } = this;
     const s = performance.now();
 
     ctx.fillStyle = "#000000";
@@ -72,9 +159,9 @@ class CerealClient {
 
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
-    const zoom = canvas.height / (camera.fov * 2);
+    const zoom = Math.max(canvas.width, canvas.height) / (camera.renderFov * 2);
     ctx.scale(zoom, zoom);
-    ctx.translate(-camera.x, -camera.y);
+    ctx.translate(-camera.renderX, -camera.renderY);
 
     ctx.fillStyle = this.bgGradient;
     ctx.fillRect(
@@ -85,23 +172,26 @@ class CerealClient {
     );
 
     ctx.fillStyle = "#FFFFFF";
-    const dv = new DataView(
-      entityBuf.buffer,
-      entityBuf.byteOffset,
-      entityBuf.byteLength,
+
+    const dvA = new DataView(
+      this.entityBuf.buffer,
+      this.entityBuf.byteOffset,
+      this.entityBuf.byteLength,
     );
-    let entity = new CerealEntity({ dv }, 0, true); // cannot call sync
+    let entityA = new CerealEntity({ dv: dvA }, 0, true); // cannot call sync
+    const dvB = new DataView(this.renderDict.buffer);
+    let entityB = new CerealEntity({ dv: dvB }, 0, true); // cannot call sync
     for (let i = 0; i < entityBuf.byteLength; i += BYTES_PER_ENTITY) {
-      entity.index = i;
-      const x = entity.px;
-      const y = entity.py;
-      const w = entity.w;
-      const h = entity.h;
+      entityA.index = i;
+      entityB.index = entityA.clientId * BYTES_PER_ENTITY;
+      const x = entityB.px;
+      const y = entityB.py;
+      const w = entityB.w;
+      const h = entityB.h;
       ctx.fillRect(x, y, w, h);
     }
     ctx.restore();
-    avgRender *= 0.95;
-    avgRender += 0.05 * (performance.now() - s);
+    this.avgRender = this.avgRender * 0.95 + (performance.now() - s) * 0.05;
   }
 
   _setUpPackets() {
@@ -142,12 +232,22 @@ class CerealClient {
     });
 
     this.connector.onPacket(PACKET_TYPES.VIEW, (cnt, data, dv) => {
+      this.avgViewMs =
+        this.avgViewMs * 0.95 + (Date.now() - this.lastViewPacket) * 0.05;
+      this.lastViewPacket = Date.now();
+
+      this.camera.startX = this.camera.renderX;
+      this.camera.startY = this.camera.renderY;
+      this.camera.startFov = this.camera.renderFov;
       this.camera.x = dv.getUint16(SERVER_VIEW_OFFSETS.x, true);
       this.camera.y = dv.getUint16(SERVER_VIEW_OFFSETS.y, true);
       this.camera.fov = dv.getUint16(SERVER_VIEW_OFFSETS.fov, true);
+
+      this.prevDict.set(this.renderDict);
+
       this.entityBuf = data.slice(
         SERVER_VIEW_OFFSETS.entities,
-        data._packetLength || data.byteLength,
+        data.byteLength,
       );
     });
   }

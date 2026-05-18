@@ -178,6 +178,11 @@ class CerealSpace {
     this.u8.fill(0, this.freeIndex, this.freeIndex + BYTES_PER_BLOCK);
     const id = this._getNewId();
     this.u32[(this.freeIndex >> 2) + CEREAL_U32_HEADER_OFFSETS.id] = id;
+    this.u32[
+      (this.freeIndex >> 2) +
+        U32_PER_HEADER +
+        CEREAL_U32_ENTITY_OFFSETS.clientId
+    ] = (Math.random() * 0xffff) | 0;
     this.idToDataIndex[id] = this.freeIndex + BYTES_PER_HEADER;
     this.freeIndex += BYTES_PER_BLOCK;
     return this.freeIndex - BYTES_PER_ENTITY;

@@ -1,4 +1,12 @@
 const CONFIG = {
+  CerealClient: {
+    /*
+     * How many entities the client can store
+     * Out of the box, the max amount is 0xffff
+     */
+    maxEntities: 0xffff,
+  },
+
   CerealSpace: {
     /*
      * How many entities to check collisions with
@@ -19,7 +27,7 @@ const CONFIG = {
      * therefore, neither interval should be too far off from one another
      * 1 = Every tick
      */
-    sortInterval: 6,
+    sortInterval: 1,
 
     /*
      * Maximum amount of entities at one time
@@ -52,6 +60,14 @@ const CONFIG = {
      * Turn servers can be included
      */
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+
+    /*
+     * When a cache packet is sent unreliably, its state can become desynced
+     * Below is how many packets must be sent of that type before the cache is refreshed
+     * with all fresh data
+     * NOTE: This should be based off some of the slowest/least rapid packets
+     */
+    cacheStateRefreshAmount: 50,
   },
 };
 
