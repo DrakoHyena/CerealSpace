@@ -8,6 +8,7 @@ import {
 } from "/js/base/entity.js";
 import {
   CerealConnector,
+  CerealPeer,
   PACKET_TYPES,
   MODES,
   STATUS,
@@ -300,35 +301,40 @@ function keepInBounds(cs, ent) {
 // If in worker context...
 if (typeof window === "undefined" && typeof self !== "undefined") {
   const server = new Server();
-  const channelIdToCC = new Map();
+  const peerIdToCC = new Map();
 
   self.onmessage = (e) => {
-    const { type, channel, id } = e.data;
+    const { type, channels, id } = e.data;
     let cc;
     switch (type) {
-      case "channel_make":
-        channel.addEventListener("open", () => {
-          console.log("Conncted to client peer from server");
-        });
+      case "set_channels":
+        // Dont make client or server
+        // Just wrapping data channels
+        let cerealPeer = new CerealPeer();
+        let openedChannels = 0;
+        for (let channel of channels) {
+          cerealPeer.setUpDataChannel(channel);
 
-        channel.addEventListener("error", (e) => {
-          console.log("Failed to maintain data channel");
-          console.error(e);
-          self.postMessage({ type: "channel_close", id: id });
-        });
+          channel.addEventListener("open", () => {
+            openedChannels++;
+            if (openedChannels === cerealPeer.EXPECTED_DATA_CHANNELS) {
+              self.postMessage({ type: "peer_open", id: id });
+            }
+          });
 
-        channel.addEventListener("close", () => {
-          self.postMessage({ type: "channel_close", id: id });
-        });
+          channel.addEventListener("close", () => {
+            self.postMessage({ type: "close_peer", id: id });
+          });
+        }
 
-        cc = server.connector.addConnection(channel);
-        channelIdToCC.set(id, cc);
+        cc = server.connector.addConnection(cerealPeer);
+        peerIdToCC.set(id, cc);
         break;
 
-      case "channel_destroy":
-        cc = channelIdToCC.get(id);
-        if (cc.STATUS !== STATUS.DISCONNECTED) cc.close();
-        channelIdToCC.delete(id);
+      case "close_channels":
+        cc = peerIdToCC.get(id);
+        cc.close();
+        peerIdToCC.delete(id);
         break;
     }
   };

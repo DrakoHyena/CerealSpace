@@ -1,5 +1,7 @@
 import { CONFIG } from "/js/base/config.js";
 import { CerealClient } from "/js/base/client.js";
+import { CerealPeer } from "/js/base/connector.js";
+import { MODES } from "/js/base/connector.js";
 
 const menu = document.getElementById("container");
 
@@ -55,30 +57,40 @@ async function hostServer() {
   localStorage.setItem("savedTurnUrl", turnUrlValue);
   localStorage.setItem("savedTurnUsername", turnUsernameValue);
   localStorage.setItem("savedTurnPassword", turnPasswordValue);
+
   const serverWorker = new Worker("/js/base/server.js", { type: "module" });
   serverWorker.onerror = () => {
     throw new Error(
       "Failed to start serverWorker, make sure you have no errors or typos",
     );
   };
-  const serverId = await client.connector.makeServerPeer(
-    serverWorker,
-    turnUrlValue.startsWith("turn")
-      ? [
-          {
-            urls: turnUrlValue,
-            username: turnUsernameValue,
-            credential: turnPasswordValue,
-          },
-        ]
-      : [],
-  );
-  return serverId;
+
+  const cerealPeer = new CerealPeer(MODES.SERVER, undefined, serverWorker);
+  cerealPeer.iceServers = turnUrlValue.startsWith("turn")
+    ? [
+        ...CONFIG.CerealConnector.iceServers,
+        {
+          urls: turnUrlValue,
+          username: turnUsernameValue,
+          credential: turnPasswordValue,
+        },
+      ]
+    : CONFIG.CerealConnector.iceServers;
+
+  let res;
+  const prom = new Promise((pRes) => (res = pRes));
+  cerealPeer.onWsOpen(() => {
+    console.log("Cereal Peer opened");
+    res(cerealPeer.ws.socketId);
+  });
+  console.log(cerealPeer);
+  return prom;
 }
 
-async function joinServer(serverId) {
-  const dc = await client.connector.makeClientPeer(serverId);
-  client.connector.addConnection(dc);
+async function joinServer(serverId, ICE_SERVERS) {
+  const cerealPeer = new CerealPeer(MODES.CLIENT, serverId);
+  cerealPeer.makeClientPeer(ICE_SERVERS);
+  client.connector.addConnection(cerealPeer);
 }
 
 let servers = {};
@@ -123,7 +135,7 @@ async function updateServers() {
 
     div.onclick = async () => {
       hideMenu();
-      joinServer(roomId);
+      joinServer(roomId, roomData.iceServers);
     };
 
     serverListDiv.appendChild(div);
@@ -144,7 +156,7 @@ quickJoinBtn.onclick = async () => {
   if (serverArr.length === 0) return;
   hideMenu();
   const i = (Math.random() * serverArr.length) | 0;
-  joinServer(serverArr[i], Object.values(serverArr)[i]);
+  joinServer(serverArr[i], Object.values(serverArr)[i].iceServers);
 };
 
 setInterval(() => {
