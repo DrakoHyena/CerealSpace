@@ -1,5 +1,5 @@
-- http(s) support
 - WS/WebRTC message limts
+- Server HTTPS Support
 - Rotations
 - Spend a full session cleaning/organizing
   - weed out slice/sub

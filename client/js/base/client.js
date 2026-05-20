@@ -66,13 +66,14 @@ class CerealClient {
     this.controlDv = new DataView(this.controlBuf);
     this.controlIndex = CLIENT_CONTROL_OFFSETS.keyLog;
 
-    this.avgRender = 0;
+    this.avgRender = 1;
     this.lastViewPacket = Date.now();
-    this.avgViewMs = 0;
+    this.avgViewMs = 1;
     this.lastRender = performance.now();
-    this.avgFrameMs = 0;
+    this.avgFrameMs = 1;
 
     this.viewLerp = 1;
+    this.clampedViewLerp = 1;
 
     this.connector = new CerealConnector(MODES.CLIENT);
     this._setUpPackets();
@@ -86,20 +87,17 @@ class CerealClient {
 
   _lerp() {
     // Camera
-    this.camera.renderX = lerp(
-      this.camera.startX,
-      this.camera.x,
-      this.viewLerp,
+    this.camera.renderX = Math.max(
+      0,
+      lerp(this.camera.startX, this.camera.x, this.viewLerp),
     );
-    this.camera.renderY = lerp(
-      this.camera.startY,
-      this.camera.y,
-      this.viewLerp,
+    this.camera.renderY = Math.max(
+      0,
+      lerp(this.camera.startY, this.camera.y, this.viewLerp),
     );
-    this.camera.renderFov = lerp(
-      this.camera.startFov,
-      this.camera.fov,
-      this.viewLerp,
+    this.camera.renderFov = Math.max(
+      0,
+      lerp(this.camera.startFov, this.camera.fov, this.clampedViewLerp),
     );
 
     // Entities
@@ -123,18 +121,25 @@ class CerealClient {
       // Note: Technically you only need to care
       // about the values you actually use in the client.
       // Here I have done them all as an example
-      entityRen.px = lerp(entityPrv.px, entityNet.px, this.viewLerp);
-      entityRen.py = lerp(entityPrv.py, entityNet.py, this.viewLerp);
+      entityRen.px = Math.max(
+        0,
+        lerp(entityPrv.px, entityNet.px, this.viewLerp),
+      );
+      entityRen.py = Math.max(
+        0,
+        lerp(entityPrv.py, entityNet.py, this.viewLerp),
+      );
       entityRen.vx = lerp(entityPrv.vx, entityNet.vx, this.viewLerp);
       entityRen.vy = lerp(entityPrv.vy, entityNet.vy, this.viewLerp);
-      entityRen.w = lerp(entityPrv.w, entityNet.w, this.viewLerp);
-      entityRen.h = lerp(entityPrv.h, entityNet.h, this.viewLerp);
+      entityRen.w = Math.max(0, lerp(entityPrv.w, entityNet.w, this.viewLerp));
+      entityRen.h = Math.max(0, lerp(entityPrv.h, entityNet.h, this.viewLerp));
       entityRen.clientId = entityNet.clientId;
     }
   }
 
   _render() {
     requestAnimationFrame(this._render.bind(this));
+
     this.avgFrameMs =
       this.avgFrameMs * 0.95 + (performance.now() - this.lastRender) * 0.05;
     this.lastRender = performance.now();
@@ -142,12 +147,9 @@ class CerealClient {
     this.viewLerp =
       Math.max(
         0,
-        Math.min(
-          2,
-          //this.viewLerp * 0.95 +
-          (Date.now() - this.lastViewPacket) / this.avgViewMs,
-        ),
+        Math.min(5, (Date.now() - this.lastViewPacket) / this.avgViewMs),
       ) || 0.01;
+    this.clampedViewLerp = Math.min(1, this.viewLerp);
 
     this._lerp();
 

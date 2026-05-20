@@ -364,7 +364,7 @@ class CerealPeer {
     console.log("Connecting to singaling server");
 
     const ws = new WebSocket(
-      `ws://${CONFIG.CerealConnector.signalingUrl}/host`,
+      `${window.location.protocol === "https:" ? "wss" : "ws"}://${CONFIG.CerealConnector.signalingUrl}/${this.mode === MODES.SERVER ? "host" : `?id=${this.targetPeerId}`}`,
     );
 
     ws.sendPacket = (dat, targetId) => {
