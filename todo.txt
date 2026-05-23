@@ -1,4 +1,5 @@
 - Rotations
+  - Dynamic aabb boxes?
 - Solve backpreasure
 - Spend a full session cleaning/organizing
   - weed out slice/sub

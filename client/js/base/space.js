@@ -182,10 +182,10 @@ class CerealSpace {
     const clientId = (Math.random() * 0xffff) | 0;
     this.u8[
       this.freeIndex + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.clientId
-    ] = (clientId >> 2) & 0xff;
+    ] = clientId & 0xff;
     this.u8[
       this.freeIndex + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.clientId + 1
-    ] = clientId & 0xff;
+    ] = (clientId >> 8) & 0xff;
     this.idToDataIndex[id] = this.freeIndex + BYTES_PER_HEADER;
     this.freeIndex += BYTES_PER_BLOCK;
     return this.freeIndex - BYTES_PER_ENTITY;
@@ -386,7 +386,6 @@ class CerealSpace {
     }
 
     if (getSubArr) {
-      // If no keys are >= kMin, or the first valid key is already > kMax, return empty
       if (startBlock > totalBlocks || this.mortonKeys[startBlock] > kMax) {
         return new Uint8Array(0);
       }

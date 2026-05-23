@@ -94,14 +94,14 @@ class CerealEntity {
   }
 
   get clientId() {
-    return this.cs.dv.setUint16(
+    return this.cs.dv.getUint16(
       this.index + CEREAL_ENTITY_OFFSETS.clientId,
       true,
     );
   }
 
   set clientId(v) {
-    return this.cs.dv.getUint16(
+    return this.cs.dv.setUint16(
       this.index + CEREAL_ENTITY_OFFSETS.clientId,
       v,
       true,
