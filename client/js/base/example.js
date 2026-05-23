@@ -83,7 +83,6 @@ async function hostServer() {
   let res;
   const prom = new Promise((pRes) => (res = pRes));
   cerealPeer.onWsOpen(() => {
-    console.log("Cereal Peer opened");
     res(cerealPeer.ws.socketId);
   });
   return prom;

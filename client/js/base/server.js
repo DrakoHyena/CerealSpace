@@ -19,9 +19,9 @@ class Player {
   constructor(cnt, cs) {
     this.cnt = cnt;
     this.entity = new CerealEntity(cs, cs.addEntity());
-    this.entity.px = 1;
-    this.entity.py = 1;
-    this.entity.w = 50;
+    this.entity.px = CONFIG.CerealSpace.padding;
+    this.entity.py = CONFIG.CerealSpace.padding;
+    this.entity.w = 150;
     this.entity.h = 50;
 
     this.camera = {
@@ -52,9 +52,16 @@ class Player {
     // Update entity
     this.entity.sync();
     if (this.entity.exists === false) return;
+
+    // Facing
+    this.entity.rot = Math.atan2(
+      this.controls.mouse.y - (this.entity.py + this.entity.h * 0.5),
+      this.controls.mouse.x - (this.entity.px + this.entity.w * 0.5),
+    );
+
     // Movement
     const keyboard = this.controls.keyboard;
-    const speed = 200;
+    const speed = 5;
     if (keyboard["w"] || keyboard["W"]) {
       this.entity.vy -= speed;
     }

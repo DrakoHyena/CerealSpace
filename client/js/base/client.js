@@ -23,11 +23,18 @@ const CLIENT_CONTROL_OFFSETS = {
 };
 
 const lerp = (x, y, a) => x * (1 - a) + y * a;
+const rLerp = (a, b, t) =>
+  Math.atan2(
+    (1 - t) * Math.sin(a) + t * Math.sin(b),
+    (1 - t) * Math.cos(a) + t * Math.cos(b),
+  );
 
 class CerealClient {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = this.canvas.getContext("2d");
+    this.canvasZoom = 1;
+
     this.bgGradient = this.ctx.createConicGradient(0, 0xffff >> 1, 0xffff >> 1);
     this.bgGradient.addColorStop(0, "#100817");
     this.bgGradient.addColorStop(0.33, "#646356");
@@ -133,6 +140,7 @@ class CerealClient {
       entityRen.vy = lerp(entityPrv.vy, entityNet.vy, this.viewLerp);
       entityRen.w = Math.max(0, lerp(entityPrv.w, entityNet.w, this.viewLerp));
       entityRen.h = Math.max(0, lerp(entityPrv.h, entityNet.h, this.viewLerp));
+      entityRen.rot = rLerp(entityPrv.rot, entityNet.rot, this.viewLerp);
       entityRen.clientId = entityNet.clientId;
     }
   }
@@ -161,8 +169,9 @@ class CerealClient {
 
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
-    const zoom = Math.max(canvas.width, canvas.height) / (camera.renderFov * 2);
-    ctx.scale(zoom, zoom);
+    this.canvasZoom =
+      Math.max(canvas.width, canvas.height) / (camera.renderFov * 2);
+    ctx.scale(this.canvasZoom, this.canvasZoom);
     ctx.translate(-camera.renderX, -camera.renderY);
 
     ctx.fillStyle = this.bgGradient;
@@ -190,8 +199,17 @@ class CerealClient {
       const y = entityB.py;
       const w = entityB.w;
       const h = entityB.h;
+
+      ctx.save();
+      const xTrans = x + w * 0.5;
+      const yTrans = y + h * 0.5;
+      ctx.translate(xTrans, yTrans);
+      ctx.rotate(entityB.rot);
+      ctx.translate(-xTrans, -yTrans);
       ctx.fillRect(x, y, w, h);
+      ctx.restore();
     }
+
     ctx.restore();
     this.avgRender = this.avgRender * 0.95 + (performance.now() - s) * 0.05;
   }
@@ -266,8 +284,18 @@ class CerealClient {
     });
 
     this.canvas.addEventListener("mousemove", (e) => {
-      this.controlDv.setUint16(CLIENT_CONTROL_OFFSETS.mx, e.clientX, true);
-      this.controlDv.setUint16(CLIENT_CONTROL_OFFSETS.my, e.clientY, true);
+      this.controlDv.setUint16(
+        CLIENT_CONTROL_OFFSETS.mx,
+        this.camera.renderX +
+          (e.clientX - this.canvas.width / 2) / this.canvasZoom,
+        true,
+      );
+      this.controlDv.setUint16(
+        CLIENT_CONTROL_OFFSETS.my,
+        this.camera.renderY +
+          (e.clientY - this.canvas.height / 2) / this.canvasZoom,
+        true,
+      );
     });
 
     window.addEventListener("keydown", (e) => {

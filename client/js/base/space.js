@@ -1,6 +1,7 @@
 import { CONFIG } from "/js/base/config.js";
 import {
   CerealEntity,
+  CEREAL_ENTITY_OFFSETS,
   CEREAL_U32_HEADER_OFFSETS,
   CEREAL_U32_ENTITY_OFFSETS,
   BYTES_PER_BLOCK,
@@ -178,11 +179,13 @@ class CerealSpace {
     this.u8.fill(0, this.freeIndex, this.freeIndex + BYTES_PER_BLOCK);
     const id = this._getNewId();
     this.u32[(this.freeIndex >> 2) + CEREAL_U32_HEADER_OFFSETS.id] = id;
-    this.u32[
-      (this.freeIndex >> 2) +
-        U32_PER_HEADER +
-        CEREAL_U32_ENTITY_OFFSETS.clientId
-    ] = (Math.random() * 0xffff) | 0;
+    const clientId = (Math.random() * 0xffff) | 0;
+    this.u8[
+      this.freeIndex + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.clientId
+    ] = (clientId >> 2) & 0xff;
+    this.u8[
+      this.freeIndex + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.clientId + 1
+    ] = clientId & 0xff;
     this.idToDataIndex[id] = this.freeIndex + BYTES_PER_HEADER;
     this.freeIndex += BYTES_PER_BLOCK;
     return this.freeIndex - BYTES_PER_ENTITY;

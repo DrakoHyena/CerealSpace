@@ -6,7 +6,8 @@ const [CEREAL_ENTITY_OFFSETS, CEREAL_U32_ENTITY_OFFSETS] =
     vy: 4,
     w: 2,
     h: 2,
-    clientId: 4,
+    rot: 2,
+    clientId: 2,
   });
 
 const [CEREAL_HEADER_OFFSETS, CEREAL_U32_HEADER_OFFSETS] =
@@ -84,8 +85,16 @@ class CerealEntity {
     this.cs.dv.setUint16(this.index + CEREAL_ENTITY_OFFSETS.h, v, true);
   }
 
+  get rot() {
+    return this.cs.dv.getFloat16(this.index + CEREAL_ENTITY_OFFSETS.rot, true);
+  }
+
+  set rot(v) {
+    this.cs.dv.setFloat16(this.index + CEREAL_ENTITY_OFFSETS.rot, v, true);
+  }
+
   get clientId() {
-    return this.cs.dv.getUint16(
+    return this.cs.dv.setUint16(
       this.index + CEREAL_ENTITY_OFFSETS.clientId,
       true,
     );

@@ -1,6 +1,5 @@
-- WS/WebRTC message limts
-- Server HTTPS Support
 - Rotations
+- Solve backpreasure
 - Spend a full session cleaning/organizing
   - weed out slice/sub
 - Document everthing in index.html

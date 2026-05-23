@@ -82,7 +82,12 @@ const server = http.createServer((req, res) => {
   serveStaticFile(req, res);
 });
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  maxPayload: 16000,
+  maxBufferedChunks: 10,
+  maxFragments: 2,
+});
 
 wss.on("connection", (ws) => {
   ws.send(JSON.stringify({ type: "SIGNAL_SOCKET_ID", socketId: ws.socketId }));
