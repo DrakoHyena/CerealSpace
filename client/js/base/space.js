@@ -318,36 +318,75 @@ class CerealSpace {
     const blockIndex = (entity.index - BYTES_PER_HEADER) / BYTES_PER_BLOCK;
     const blockA32 = blockIndex * u32_PER_BLOCK;
     const dataA32 = blockA32 + U32_PER_HEADER;
+    const dataA8 = blockIndex * BYTES_PER_BLOCK + BYTES_PER_HEADER;
 
     const posA = this.u32[dataA32 + CEREAL_U32_ENTITY_OFFSETS.px];
-    const ax1 = posA & 0xffff;
-    const ay1 = posA >>> 16;
+    const ax = posA & 0xffff;
+    const ay = posA >>> 16;
 
     const sizeA = this.u32[dataA32 + CEREAL_U32_ENTITY_OFFSETS.w];
-    const ax2 = ax1 + (sizeA & 0xffff);
-    const ay2 = ay1 + (sizeA >>> 16);
+    const aw = sizeA & 0xffff;
+    const ah = sizeA >>> 16;
 
-    const keyCutoff =
-      (MORTON_LUT[ax2 & 0xffff] | (MORTON_LUT[ay2 & 0xffff] << 1)) >>> 0;
+    const rotA =
+      FLOAT16_LUT[
+        (this.u8[dataA8 + CEREAL_ENTITY_OFFSETS.rot] & 0xff) |
+          ((this.u8[dataA8 + CEREAL_ENTITY_OFFSETS.rot + 1] & 0xff) << 8)
+      ];
+    const cosA = Math.abs(Math.cos(rotA));
+    const sinA = Math.abs(Math.sin(rotA));
+
+    const aHalfW = (aw * cosA + ah * sinA) * 0.5;
+    const aHalfH = (aw * sinA + ah * cosA) * 0.5;
+    const axc = ax + aw * 0.5;
+    const ayc = ay + ah * 0.5;
+
+    const aMinX = axc - aHalfW;
+    const aMaxX = axc + aHalfW;
+    const aMinY = ayc - aHalfH;
+    const aMaxY = ayc + aHalfH;
 
     const maxItrs = CONFIG.CerealSpace.maxCollisionLoops;
     const blockCount = this.freeIndex / BYTES_PER_BLOCK;
     const end = Math.min(blockCount, blockIndex + maxItrs);
-    for (let b = blockIndex + 1; b < end; b++) {
-      if (this.mortonKeys[b] > keyCutoff) break;
 
+    for (let b = blockIndex + 1; b < end; b++) {
       const blockB32 = b * u32_PER_BLOCK;
       const dataB32 = blockB32 + U32_PER_HEADER;
+      const dataB8 = b * BYTES_PER_BLOCK + BYTES_PER_HEADER;
 
       const posB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.px];
-      const bx1 = posB & 0xffff;
-      const by1 = posB >>> 16;
+      const bx = posB & 0xffff;
+      const by = posB >>> 16;
 
       const sizeB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.w];
-      const bx2 = bx1 + (sizeB & 0xffff);
-      const by2 = by1 + (sizeB >>> 16);
+      const bw = sizeB & 0xffff;
+      const bh = sizeB >>> 16;
 
-      if (ax1 <= bx2 && ax2 >= bx1 && ay1 <= by2 && ay2 >= by1) {
+      const rotB =
+        FLOAT16_LUT[
+          (this.u8[dataB8 + CEREAL_ENTITY_OFFSETS.rot] & 0xff) |
+            ((this.u8[dataB8 + CEREAL_ENTITY_OFFSETS.rot + 1] & 0xff) << 8)
+        ];
+      const cosB = Math.abs(Math.cos(rotB));
+      const sinB = Math.abs(Math.sin(rotB));
+
+      const bHalfW = (bw * cosB + bh * sinB) * 0.5;
+      const bHalfH = (bw * sinB + bh * cosB) * 0.5;
+      const bxc = bx + bw * 0.5;
+      const byc = by + bh * 0.5;
+
+      const bMinX = bxc - bHalfW;
+      const bMaxX = bxc + bHalfW;
+      const bMinY = byc - bHalfH;
+      const bMaxY = byc + bHalfH;
+
+      if (
+        aMinX <= bMaxX &&
+        aMaxX >= bMinX &&
+        aMinY <= bMaxY &&
+        aMaxY >= bMinY
+      ) {
         this._collisionEntity.index = b * BYTES_PER_BLOCK + BYTES_PER_HEADER;
         this._collisionEntity.id =
           this.u32[blockB32 + CEREAL_U32_HEADER_OFFSETS.id];
@@ -461,6 +500,20 @@ class CerealSpace {
       this.avgTickTime * 100,
       true,
     );
+  }
+}
+
+const FLOAT16_LUT = new Float32Array(65536);
+for (let i = 0; i < 65536; i++) {
+  const s = (i & 0x8000) >> 15;
+  const e = (i & 0x7c00) >> 10;
+  const f = i & 0x03ff;
+  if (e === 0) {
+    FLOAT16_LUT[i] = (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+  } else if (e === 31) {
+    FLOAT16_LUT[i] = f ? NaN : s ? -Infinity : Infinity;
+  } else {
+    FLOAT16_LUT[i] = (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
   }
 }
 

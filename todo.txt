@@ -1,6 +1,6 @@
-- Rotations
-  - Dynamic aabb boxes?
+- Finish out rotation support
 - Solve backpreasure
+
 - Spend a full session cleaning/organizing
   - weed out slice/sub
 - Document everthing in index.html

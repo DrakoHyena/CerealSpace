@@ -80,41 +80,45 @@ class CerealConnection {
   }
 
   processSendCache(type, newPacket) {
-    if (this.packetCache[type] === undefined) {
-      const cacheBuf = new ArrayBuffer(SEND_BUF_SIZE);
+    const needsFullRefresh =
+      this.packetCache[type] === undefined ||
+      this.sendCacheAmounts[type]++ >
+        CONFIG.CerealConnector.cacheStateRefreshAmount;
+
+    if (needsFullRefresh) {
+      // Initialize or resize the cache view safely
+      const cacheBuf =
+        this.packetCache[type]?.buffer || new ArrayBuffer(SEND_BUF_SIZE);
       this.packetCache[type] = new Uint8Array(
         cacheBuf,
         0,
         newPacket.byteLength,
       );
       this.packetCache[type].set(newPacket, 0);
-      this.sendCacheAmounts[type] = 0;
-      return false;
-    }
 
-    if (
-      this.sendCacheAmounts[type]++ >
-      CONFIG.CerealConnector.cacheStateRefreshAmount
-    ) {
-      this.packetCache[type].set(newPacket, 0);
       this.sendCacheAmounts[type] = 0;
-      return false;
+      return false; // Tells _processSendData to send the full packet
     }
 
     const cachePacket = this.packetCache[type];
-    const loopLen = newPacket.byteLength;
+    const oldLen = cachePacket.length;
+    const newLen = newPacket.byteLength;
+    const loopLen = Math.max(oldLen, newLen);
+
     let dvIndex = 4;
     const dv = this.diffView;
     dv.setUint16(0, type, true);
-    dv.setUint16(2, newPacket.byteLength, true);
+    dv.setUint16(2, newLen, true);
+
     const MAX_GAP = 4;
     let gap = 0;
     let startIndex = -1;
+
     for (let i = 0; i < loopLen; i++) {
-      if (cachePacket[i] !== newPacket[i]) {
-        if (startIndex === -1) {
-          startIndex = i;
-        }
+      const isDifferent = i >= oldLen || cachePacket[i] !== newPacket[i];
+
+      if (isDifferent) {
+        if (startIndex === -1) startIndex = i;
         gap = 0;
       } else {
         if (startIndex !== -1) {
@@ -124,37 +128,35 @@ class CerealConnection {
             const chunkLen = endIndex - startIndex;
 
             dv.setUint16(dvIndex, startIndex, true);
-            dvIndex += 2;
-            dv.setUint16(dvIndex, chunkLen, true);
-            dvIndex += 2;
-            this.diff.set(newPacket.subarray(startIndex, endIndex), dvIndex);
-            dvIndex += chunkLen;
+            dv.setUint16(dvIndex + 2, chunkLen, true);
+            this.diff.set(
+              newPacket.subarray(startIndex, endIndex),
+              dvIndex + 4,
+            );
 
+            dvIndex += 4 + chunkLen;
             startIndex = -1;
             gap = 0;
           }
         }
       }
     }
+
     if (startIndex !== -1) {
-      const endIndex = loopLen - gap;
-      const chunkLen = endIndex - startIndex;
+      const endIndex = newLen - (newLen < oldLen ? 0 : gap);
+      const chunkLen = Math.max(0, endIndex - startIndex);
 
       if (chunkLen > 0) {
         dv.setUint16(dvIndex, startIndex, true);
-        dvIndex += 2;
-        dv.setUint16(dvIndex, chunkLen, true);
-        dvIndex += 2;
-        this.diff.set(newPacket.subarray(startIndex, endIndex), dvIndex);
-        dvIndex += chunkLen;
+        dv.setUint16(dvIndex + 2, chunkLen, true);
+        this.diff.set(newPacket.subarray(startIndex, endIndex), dvIndex + 4);
+        dvIndex += 4 + chunkLen;
       }
     }
-    this.packetCache[type] = new Uint8Array(
-      cachePacket.buffer,
-      0,
-      newPacket.byteLength,
-    );
+
+    this.packetCache[type] = new Uint8Array(cachePacket.buffer, 0, newLen);
     this.packetCache[type].set(newPacket, 0);
+
     return this.diff.subarray(0, dvIndex);
   }
 

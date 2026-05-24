@@ -7,6 +7,7 @@ const [CEREAL_ENTITY_OFFSETS, CEREAL_U32_ENTITY_OFFSETS] =
     w: 2,
     h: 2,
     rot: 2,
+    vRot: 2,
     clientId: 2,
   });
 
@@ -91,6 +92,14 @@ class CerealEntity {
 
   set rot(v) {
     this.cs.dv.setFloat16(this.index + CEREAL_ENTITY_OFFSETS.rot, v, true);
+  }
+
+  get vRot() {
+    return this.cs.dv.getFloat16(this.index + CEREAL_ENTITY_OFFSETS.vRot, true);
+  }
+
+  set vRot(v) {
+    this.cs.dv.setFloat16(this.index + CEREAL_ENTITY_OFFSETS.vRot, v, true);
   }
 
   get clientId() {

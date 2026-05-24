@@ -21,8 +21,8 @@ class Player {
     this.entity = new CerealEntity(cs, cs.addEntity());
     this.entity.px = CONFIG.CerealSpace.padding;
     this.entity.py = CONFIG.CerealSpace.padding;
-    this.entity.w = 150;
-    this.entity.h = 50;
+    this.entity.w = 30;
+    this.entity.h = 30;
 
     this.camera = {
       x: 1,
@@ -54,10 +54,18 @@ class Player {
     if (this.entity.exists === false) return;
 
     // Facing
-    this.entity.rot = Math.atan2(
-      this.controls.mouse.y - (this.entity.py + this.entity.h * 0.5),
-      this.controls.mouse.x - (this.entity.px + this.entity.w * 0.5),
-    );
+    let radDiff =
+      Math.atan2(
+        this.controls.mouse.y - (this.entity.py + this.entity.h * 0.5),
+        this.controls.mouse.x - (this.entity.px + this.entity.w * 0.5),
+      ) - this.entity.rot;
+    radDiff = (radDiff + Math.PI) % (Math.PI * 2);
+    if (radDiff < 0) {
+      radDiff += Math.PI;
+    } else {
+      radDiff -= Math.PI;
+    }
+    this.entity.vRot = radDiff * 0.1;
 
     // Movement
     const keyboard = this.controls.keyboard;
@@ -233,37 +241,48 @@ class Server {
           cnt,
         );
       }
-    }, 1000 / 30);
+    }, 1000 / 3);
   }
 }
 
 function movement(entity) {
-  if (entity.vx === 0 && entity.vy === 0) return;
-  entity.px += entity.vx;
-  entity.py += entity.vy;
-  entity.vx *= 0.95;
-  entity.vy *= 0.95;
+  if (entity.vRot !== 0) {
+    entity.rot += entity.vRot;
+    entity.vRot *= 0.95;
+  }
+  if (entity.vx !== 0 || entity.vy !== 0) {
+    entity.px += entity.vx;
+    entity.py += entity.vy;
+    entity.vx *= 0.95;
+    entity.vy *= 0.95;
+  }
 }
 
-function collide(entityA, entityB, damper = 0.9) {
+function collide(entityA, entityB, damper = 0.5) {
+  const halfAVRot = entityA.vRot * 0.5;
+  const halfBVRot = entityB.vRot * 0.5;
+  const cumVRot = halfAVRot + halfBVRot;
+  entityA.vRot = halfAVRot + cumVRot;
+  entityB.vRot = halfBVRot + cumVRot;
+
   const centerDistanceX =
     entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);
   const centerDistanceY =
     entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
 
-  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
-  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
+  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX) || 1;
+  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY) || 1;
 
   if (overlapX < overlapY) {
     const directionX = centerDistanceX >= 0 ? 1 : -1;
-    const impulseX = overlapX * 0.5 * directionX;
-    entityA.vx += Math.round(impulseX * damper);
-    entityB.vx -= Math.round(impulseX * damper);
+    const impulseX = Math.abs(overlapX) ** damper * directionX;
+    entityA.vx += Math.ceil(impulseX);
+    entityB.vx -= Math.ceil(impulseX);
   } else {
     const directionY = centerDistanceY >= 0 ? 1 : -1;
-    const impulseY = overlapY * 0.5 * directionY;
-    entityA.vy += Math.round(impulseY * damper);
-    entityB.vy -= Math.round(impulseY * damper);
+    const impulseY = Math.abs(overlapY) ** damper * directionY;
+    entityA.vy += Math.ceil(impulseY);
+    entityB.vy -= Math.ceil(impulseY);
   }
 }
 
