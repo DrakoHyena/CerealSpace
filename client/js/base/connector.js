@@ -244,6 +244,24 @@ class CerealPeer {
   setUpDataChannel(dc) {
     console.log("Adding data channel", dc.label);
     this.dataChannels.push(dc);
+    dc.bufferedAmountLowThreshold = 32768;
+    dc._sendQueue = [];
+
+    dc.addEventListener("bufferedamountlow", () => {
+      console.log("Draining back preasure");
+      while (
+        dc._sendQueue.length > 0 &&
+        dc.bufferedAmount < dc.bufferedAmountLowThreshold
+      ) {
+        const payload = dc._sendQueue.shift();
+        try {
+          dc.send(payload);
+        } catch (err) {
+          console.error(`Error flushing queue on channel ${dc.label}:`, err);
+          break;
+        }
+      }
+    });
 
     dc.addEventListener("message", (e) => {
       if (this.hasOpened === false) {
@@ -276,7 +294,11 @@ class CerealPeer {
   sendReliable(data) {
     for (let channel of this.dataChannels) {
       if (channel.label === "reliable") {
-        channel.send(data);
+        if (channel.bufferedAmount > channel.bufferedAmountLowThreshold) {
+          channel._sendQueue.push(data.slice());
+        } else {
+          channel.send(data);
+        }
         return;
       }
     }
@@ -286,7 +308,11 @@ class CerealPeer {
   sendUnreliable(data) {
     for (let channel of this.dataChannels) {
       if (channel.label === "unreliable") {
-        channel.send(data);
+        if (channel.bufferedAmount > channel.bufferedAmountLowThreshold) {
+          console.warn("Dropping unreliable packet due to back preasure");
+        } else {
+          channel.send(data);
+        }
         return;
       }
     }

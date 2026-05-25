@@ -12,6 +12,7 @@ import {
   PACKET_TYPES,
   MODES,
   STATUS,
+  SEND_BUF_SIZE,
 } from "/js/base/connector.js";
 import { CLIENT_CONTROL_OFFSETS } from "/js/base/client.js";
 
@@ -179,7 +180,11 @@ class Server {
     this.connector.onPacket(PACKET_TYPES.CONTROLS, (cnt, data, dv) => {
       if (cnt.status !== STATUS.OPEN) return;
       const player = this.players.get(cnt);
-      player.updateControls(dv);
+      try {
+        player.updateControls(dv);
+      } catch (e) {
+        console.error("Malformed control packet", e);
+      }
     });
   }
 
@@ -226,14 +231,24 @@ class Server {
         const x2 = player.camera.x + fov;
         const y2 = player.camera.y + fov;
         const ents = this.cs.query(x1, y1, x2, y2, undefined, 0, true);
+
         let entityLen = 0;
         for (let i = 0; i < ents.byteLength; i += BYTES_PER_BLOCK) {
+          if (
+            SERVER_VIEW_OFFSETS.entities + entityLen * BYTES_PER_ENTITY >
+            SEND_BUF_SIZE
+          ) {
+            console.warn("View exceeds SEND_BUF_SIZE, packet truncated");
+            break;
+          }
+
           this.connector.sendU8.set(
             ents.subarray(i + BYTES_PER_HEADER, i + BYTES_PER_BLOCK),
             SERVER_VIEW_OFFSETS.entities + entityLen,
           );
           entityLen += BYTES_PER_ENTITY;
         }
+
         this.connector.sendPacket(
           PACKET_TYPES.VIEW,
           this.connector.sendU8.subarray(
@@ -298,15 +313,12 @@ function keepInBounds(cs, ent) {
   const w = ent.w;
   const h = ent.h;
 
-  // Use the largest dimension to create a "safe" radius
   const maxSize = Math.max(w, h);
-  const halfMax = maxSize / 2;
+  const halfMax = maxSize * 0.5;
+  let cx = ent.px + w * 0.5;
+  let cy = ent.py + h * 0.5;
 
-  // Find the current center of the entity
-  let cx = ent.px + w / 2;
-  let cy = ent.py + h / 2;
-
-  // --- X Axis (Horizontal) ---
+  // x
   // Fully off-screen left: Wrap to right
   if (cx + halfMax < boundL) {
     cx = boundR - halfMax;
@@ -324,7 +336,7 @@ function keepInBounds(cs, ent) {
     cx = boundR - halfMax;
   }
 
-  // --- Y Axis (Vertical) ---
+  // y
   // Fully off-screen top: Wrap to bottom
   if (cy + halfMax < boundT) {
     cy = boundB - halfMax;
@@ -343,8 +355,8 @@ function keepInBounds(cs, ent) {
   }
 
   // Apply adjusted center back to the entity's top-left position
-  ent.px = cx - w / 2;
-  ent.py = cy - h / 2;
+  ent.px = cx - w * 0.5;
+  ent.py = cy - h * 0.5;
 }
 
 // If in worker context...
