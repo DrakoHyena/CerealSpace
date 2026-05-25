@@ -454,14 +454,34 @@ class CerealSpace {
 
       const blockB32 = b * u32_PER_BLOCK;
       const dataB32 = blockB32 + U32_PER_HEADER;
-      const posB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.px];
-      const sizeB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.w];
-      const bx1 = posB & 0xffff;
-      const by1 = posB >>> 16;
-      const bx2 = bx1 + (sizeB & 0xffff);
-      const by2 = by1 + (sizeB >>> 16);
 
-      if (x1 <= bx2 && x2 >= bx1 && y1 <= by2 && y2 >= by1) {
+      const posB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.px];
+      const bx = posB & 0xffff;
+      const by = posB >>> 16;
+
+      const sizeB = this.u32[dataB32 + CEREAL_U32_ENTITY_OFFSETS.w];
+      const bw = sizeB & 0xffff;
+      const bh = sizeB >>> 16;
+
+      const rotB =
+        FLOAT16_LUT[
+          (this.u8[dataB8 + CEREAL_ENTITY_OFFSETS.rot] & 0xff) |
+            ((this.u8[dataB8 + CEREAL_ENTITY_OFFSETS.rot + 1] & 0xff) << 8)
+        ];
+      const cosB = Math.abs(Math.cos(rotB));
+      const sinB = Math.abs(Math.sin(rotB));
+
+      const bHalfW = (bw * cosB + bh * sinB) * 0.5;
+      const bHalfH = (bw * sinB + bh * cosB) * 0.5;
+      const bxc = bx + bw * 0.5;
+      const byc = by + bh * 0.5;
+
+      const bMinX = bxc - bHalfW;
+      const bMaxX = bxc + bHalfW;
+      const bMinY = byc - bHalfH;
+      const bMaxY = byc + bHalfH;
+
+      if (x1 <= bMaxX && x2 >= bMinX && y1 <= bMaxY && y2 >= bMinY) {
         this._queryEntity.index = b * BYTES_PER_BLOCK + BYTES_PER_HEADER;
         this._queryEntity.id =
           this.u32[blockB32 + CEREAL_U32_HEADER_OFFSETS.id];

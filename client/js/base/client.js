@@ -284,16 +284,16 @@ class CerealClient {
     });
 
     this.canvas.addEventListener("mousemove", (e) => {
-      this.controlDv.setUint16(
+      this.controlDv.setInt16(
         CLIENT_CONTROL_OFFSETS.mx,
-        this.camera.renderX +
-          (e.clientX - this.canvas.width / 2) / this.canvasZoom,
+        (e.clientX / this.canvas.width) * this.camera.renderFov -
+          this.camera.renderFov * 0.5,
         true,
       );
-      this.controlDv.setUint16(
+      this.controlDv.setInt16(
         CLIENT_CONTROL_OFFSETS.my,
-        this.camera.renderY +
-          (e.clientY - this.canvas.height / 2) / this.canvasZoom,
+        (e.clientY / this.canvas.height) * this.camera.renderFov -
+          this.camera.renderFov * 0.5,
         true,
       );
     });

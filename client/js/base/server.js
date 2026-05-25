@@ -27,7 +27,7 @@ class Player {
     this.camera = {
       x: 1,
       y: 1,
-      fov: 500,
+      fov: 5,
     };
     this.controls = {
       mouse: {
@@ -100,8 +100,10 @@ class Player {
   updateControls(controlsDv) {
     const mouse = this.controls.mouse;
     const keyboard = this.controls.keyboard;
-    mouse.x = controlsDv.getUint16(CLIENT_CONTROL_OFFSETS.mx, true);
-    mouse.y = controlsDv.getUint16(CLIENT_CONTROL_OFFSETS.my, true);
+    mouse.x =
+      this.camera.x + controlsDv.getInt16(CLIENT_CONTROL_OFFSETS.mx, true);
+    mouse.y =
+      this.camera.y + controlsDv.getInt16(CLIENT_CONTROL_OFFSETS.my, true);
     mouse.scroll += controlsDv.getInt16(
       CLIENT_CONTROL_OFFSETS.scrollDelta,
       true,
@@ -241,7 +243,7 @@ class Server {
           cnt,
         );
       }
-    }, 1000 / 3);
+    }, 1000 / 30);
   }
 }
 
@@ -258,7 +260,7 @@ function movement(entity) {
   }
 }
 
-function collide(entityA, entityB, damper = 0.5) {
+function collide(entityA, entityB, damper = 1) {
   const halfAVRot = entityA.vRot * 0.5;
   const halfBVRot = entityB.vRot * 0.5;
   const cumVRot = halfAVRot + halfBVRot;
@@ -270,17 +272,17 @@ function collide(entityA, entityB, damper = 0.5) {
   const centerDistanceY =
     entityA.py + entityA.h / 2 - (entityB.py + entityB.h / 2);
 
-  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX) || 1;
-  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY) || 1;
+  const overlapX = (entityA.w + entityB.w) / 2 - Math.abs(centerDistanceX);
+  const overlapY = (entityA.h + entityB.h) / 2 - Math.abs(centerDistanceY);
 
   if (overlapX < overlapY) {
     const directionX = centerDistanceX >= 0 ? 1 : -1;
-    const impulseX = Math.abs(overlapX) ** damper * directionX;
+    const impulseX = overlapX * 0.5 * damper * directionX;
     entityA.vx += Math.ceil(impulseX);
     entityB.vx -= Math.ceil(impulseX);
   } else {
     const directionY = centerDistanceY >= 0 ? 1 : -1;
-    const impulseY = Math.abs(overlapY) ** damper * directionY;
+    const impulseY = overlapY * 0.5 * damper * directionY;
     entityA.vy += Math.ceil(impulseY);
     entityB.vy -= Math.ceil(impulseY);
   }
@@ -288,40 +290,61 @@ function collide(entityA, entityB, damper = 0.5) {
 
 function keepInBounds(cs, ent) {
   const padding = cs.padding;
-  const csW = cs.width - padding;
-  const csH = cs.height - padding;
+  const boundL = padding;
+  const boundR = cs.width - padding;
+  const boundT = padding;
+  const boundB = cs.height - padding;
+
   const w = ent.w;
   const h = ent.h;
 
-  // -,-
-  let x1 = ent.px;
-  let y1 = ent.py;
-  let x2 = x1 + w;
-  let y2 = y1 + h;
-  if (x2 < padding) {
-    x1 = ent.px = csW - w;
-  } else if (x1 < padding) {
-    x1 = ent.px = padding;
+  // Use the largest dimension to create a "safe" radius
+  const maxSize = Math.max(w, h);
+  const halfMax = maxSize / 2;
+
+  // Find the current center of the entity
+  let cx = ent.px + w / 2;
+  let cy = ent.py + h / 2;
+
+  // --- X Axis (Horizontal) ---
+  // Fully off-screen left: Wrap to right
+  if (cx + halfMax < boundL) {
+    cx = boundR - halfMax;
   }
-  if (y2 < padding) {
-    y1 = ent.py = csH - h;
-  } else if (y1 < padding) {
-    y1 = ent.py = padding;
+  // Touching/Overlapping left: Clamp to edge
+  else if (cx - halfMax < boundL) {
+    cx = boundL + halfMax;
+  }
+  // Fully off-screen right: Wrap to left
+  else if (cx - halfMax > boundR) {
+    cx = boundL + halfMax;
+  }
+  // Touching/Overlapping right: Clamp to edge
+  else if (cx + halfMax > boundR) {
+    cx = boundR - halfMax;
   }
 
-  // +,+
-  x2 = x1 + w;
-  y2 = y1 + h;
-  if (csW < x1) {
-    ent.px = padding;
-  } else if (csW < x2) {
-    ent.px = csW - w;
+  // --- Y Axis (Vertical) ---
+  // Fully off-screen top: Wrap to bottom
+  if (cy + halfMax < boundT) {
+    cy = boundB - halfMax;
   }
-  if (csH < y1) {
-    ent.py = padding;
-  } else if (csH < y2) {
-    ent.py = csH - h;
+  // Touching/Overlapping top: Clamp to edge
+  else if (cy - halfMax < boundT) {
+    cy = boundT + halfMax;
   }
+  // Fully off-screen bottom: Wrap to top
+  else if (cy - halfMax > boundB) {
+    cy = boundT + halfMax;
+  }
+  // Touching/Overlapping bottom: Clamp to edge
+  else if (cy + halfMax > boundB) {
+    cy = boundB - halfMax;
+  }
+
+  // Apply adjusted center back to the entity's top-left position
+  ent.px = cx - w / 2;
+  ent.py = cy - h / 2;
 }
 
 // If in worker context...

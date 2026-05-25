@@ -48,7 +48,7 @@ const CONFIG = {
      * Touching an edge wraps entities, This will prevent wrapping
      * NOTE: If the entity has sufficient velocity it can overcome the padding and wrap
      */
-    padding: 100,
+    padding: 256,
   },
 
   CerealConnector: {
