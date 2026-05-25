@@ -25,6 +25,9 @@ class Player {
     this.entity.w = 30;
     this.entity.h = 30;
 
+    // TODO: temp
+    this.cs = cs;
+
     this.camera = {
       x: 1,
       y: 1,
@@ -46,6 +49,20 @@ class Player {
   }
 
   tick() {
+    // Testing
+    if (this.controls.mouse.lmb) {
+      for (let i = 0; i < 1000; i++) {
+        let entity = new CerealEntity(this.cs, this.cs.addEntity());
+        entity.px = this.controls.mouse.x;
+        entity.py = this.controls.mouse.y;
+        entity.vx += 5000 * Math.random() - 2500;
+        entity.vy += 5000 * Math.random() - 2500;
+        entity.w = 50;
+        entity.h = 50;
+        entity.vRot = 6 * Math.random() - 3;
+      }
+    }
+
     // Update scroll
     this.controls.mouse.scroll *= 0.9;
     this.camera.fov += this.controls.mouse.scroll * 0.5;
@@ -70,7 +87,7 @@ class Player {
 
     // Movement
     const keyboard = this.controls.keyboard;
-    const speed = 5;
+    const speed = 100;
     if (keyboard["w"] || keyboard["W"]) {
       this.entity.vy -= speed;
     }
@@ -235,7 +252,7 @@ class Server {
         let entityLen = 0;
         for (let i = 0; i < ents.byteLength; i += BYTES_PER_BLOCK) {
           if (
-            SERVER_VIEW_OFFSETS.entities + entityLen * BYTES_PER_ENTITY >
+            SERVER_VIEW_OFFSETS.entities + entityLen + BYTES_PER_ENTITY >
             SEND_BUF_SIZE
           ) {
             console.warn("View exceeds SEND_BUF_SIZE, packet truncated");
@@ -248,7 +265,7 @@ class Server {
           );
           entityLen += BYTES_PER_ENTITY;
         }
-
+        console.log(fov, entityLen / BYTES_PER_ENTITY);
         this.connector.sendPacket(
           PACKET_TYPES.VIEW,
           this.connector.sendU8.subarray(
@@ -264,7 +281,13 @@ class Server {
 
 function movement(entity) {
   if (entity.vRot !== 0) {
-    entity.rot += entity.vRot;
+    let normalized = (entity.rot += entity.vRot);
+    normalized = (normalized + Math.PI) % (2 * Math.PI);
+    if (normalized < 0) {
+      normalized += Math.PI * 2;
+    }
+    entity.rot = normalized - Math.PI;
+
     entity.vRot *= 0.95;
   }
   if (entity.vx !== 0 || entity.vy !== 0) {
@@ -278,9 +301,8 @@ function movement(entity) {
 function collide(entityA, entityB, damper = 1) {
   const halfAVRot = entityA.vRot * 0.5;
   const halfBVRot = entityB.vRot * 0.5;
-  const cumVRot = halfAVRot + halfBVRot;
-  entityA.vRot = halfAVRot + cumVRot;
-  entityB.vRot = halfBVRot + cumVRot;
+  entityA.vRot = halfAVRot + halfBVRot;
+  entityB.vRot = halfBVRot + halfAVRot;
 
   const centerDistanceX =
     entityA.px + entityA.w / 2 - (entityB.px + entityB.w / 2);

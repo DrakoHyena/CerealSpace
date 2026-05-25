@@ -105,12 +105,12 @@ class CerealConnection {
     const newLen = newPacket.byteLength;
     const loopLen = Math.max(oldLen, newLen);
 
-    let dvIndex = 4;
+    let dvIndex = 6;
     const dv = this.diffView;
     dv.setUint16(0, type, true);
-    dv.setUint16(2, newLen, true);
+    dv.setUint32(2, newLen, true);
 
-    const MAX_GAP = 4;
+    const MAX_GAP = 10;
     let gap = 0;
     let startIndex = -1;
 
@@ -127,14 +127,14 @@ class CerealConnection {
             const endIndex = i - gap + 1;
             const chunkLen = endIndex - startIndex;
 
-            dv.setUint16(dvIndex, startIndex, true);
-            dv.setUint16(dvIndex + 2, chunkLen, true);
+            dv.setUint32(dvIndex, startIndex, true);
+            dv.setUint32(dvIndex + 4, chunkLen, true);
             this.diff.set(
               newPacket.subarray(startIndex, endIndex),
-              dvIndex + 4,
+              dvIndex + 8,
             );
 
-            dvIndex += 4 + chunkLen;
+            dvIndex += 8 + chunkLen;
             startIndex = -1;
             gap = 0;
           }
@@ -147,10 +147,10 @@ class CerealConnection {
       const chunkLen = Math.max(0, endIndex - startIndex);
 
       if (chunkLen > 0) {
-        dv.setUint16(dvIndex, startIndex, true);
-        dv.setUint16(dvIndex + 2, chunkLen, true);
-        this.diff.set(newPacket.subarray(startIndex, endIndex), dvIndex + 4);
-        dvIndex += 4 + chunkLen;
+        dv.setUint32(dvIndex, startIndex, true);
+        dv.setUint32(dvIndex + 4, chunkLen, true);
+        this.diff.set(newPacket.subarray(startIndex, endIndex), dvIndex + 8);
+        dvIndex += 8 + chunkLen;
       }
     }
 
@@ -164,8 +164,8 @@ class CerealConnection {
     let i = 0;
     const type = dv.getUint16(i, true);
     i += 2;
-    const len = dv.getUint16(i, true);
-    i += 2;
+    const len = dv.getUint32(i, true);
+    i += 4;
     let cachePacket = this.packetCache[type];
     if (cachePacket === undefined) {
       throw new Error(
@@ -180,10 +180,10 @@ class CerealConnection {
     );
 
     while (i < diffPacket.byteLength) {
-      const index = dv.getUint16(i, true);
-      i += 2;
-      const eLen = dv.getUint16(i, true);
-      i += 2;
+      const index = dv.getUint32(i, true);
+      i += 4;
+      const eLen = dv.getUint32(i, true);
+      i += 4;
       cachePacket.set(diffPacket.subarray(i, i + eLen), index);
       i += eLen;
     }

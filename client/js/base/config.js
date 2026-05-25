@@ -1,12 +1,4 @@
 const CONFIG = {
-  CerealClient: {
-    /*
-     * How many entities the client can store
-     * Out of the box, the max amount is 0xffff
-     */
-    maxEntities: 0xffff,
-  },
-
   CerealSpace: {
     /*
      * How many entities to check collisions with
@@ -27,7 +19,7 @@ const CONFIG = {
      * therefore, neither interval should be too far off from one another
      * 1 = Every tick
      */
-    sortInterval: 1,
+    sortInterval: 5,
 
     /*
      * Maximum amount of entities at one time

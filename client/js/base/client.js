@@ -43,10 +43,10 @@ class CerealClient {
 
     this.entityBuf = new Uint8Array(0);
     this.renderDict = new Uint8Array(
-      CONFIG.CerealClient.maxEntities * BYTES_PER_ENTITY,
+      CONFIG.CerealSpace.maxEntities * BYTES_PER_ENTITY,
     );
     this.prevDict = new Uint8Array(
-      CONFIG.CerealClient.maxEntities * BYTES_PER_ENTITY,
+      CONFIG.CerealSpace.maxEntities * BYTES_PER_ENTITY,
     );
 
     this.spaceInfo = {
@@ -124,23 +124,24 @@ class CerealClient {
       entityRen.index = entityNet.clientId * BYTES_PER_ENTITY;
       entityPrv.index = entityRen.index;
 
+      const IS_NEW = entityPrv.clientId === 0;
+
       // lerp any values here...
       // Note: Technically you only need to care
       // about the values you actually use in the client.
       // Here I have done them all as an example
-      entityRen.px = Math.max(
-        0,
-        lerp(entityPrv.px, entityNet.px, this.viewLerp),
-      );
-      entityRen.py = Math.max(
-        0,
-        lerp(entityPrv.py, entityNet.py, this.viewLerp),
-      );
-      entityRen.vx = lerp(entityPrv.vx, entityNet.vx, this.viewLerp);
-      entityRen.vy = lerp(entityPrv.vy, entityNet.vy, this.viewLerp);
-      entityRen.w = Math.max(0, lerp(entityPrv.w, entityNet.w, this.viewLerp));
-      entityRen.h = Math.max(0, lerp(entityPrv.h, entityNet.h, this.viewLerp));
+      entityRen.px = IS_NEW
+        ? entityNet.px
+        : Math.max(0, lerp(entityPrv.px, entityNet.px, this.viewLerp));
+      entityRen.py = IS_NEW
+        ? entityNet.py
+        : Math.max(0, lerp(entityPrv.py, entityNet.py, this.viewLerp));
+      entityRen.vx = entityNet.vx;
+      entityRen.vy = entityNet.vy;
+      entityRen.w = Math.round(lerp(entityPrv.w, entityNet.w, this.viewLerp));
+      entityRen.h = Math.round(lerp(entityPrv.h, entityNet.h, this.viewLerp));
       entityRen.rot = rLerp(entityPrv.rot, entityNet.rot, this.viewLerp);
+      entityRen.vRot = lerp(entityPrv.vRot, entityNet.vRot, this.viewLerp);
       entityRen.clientId = entityNet.clientId;
     }
   }
@@ -171,7 +172,7 @@ class CerealClient {
     ctx.translate(canvas.width / 2, canvas.height / 2);
     this.canvasZoom =
       Math.max(canvas.width, canvas.height) / (camera.renderFov * 2);
-    ctx.scale(this.canvasZoom, this.canvasZoom);
+    ctx.scale(this.canvasZoom / 50, this.canvasZoom / 50);
     ctx.translate(-camera.renderX, -camera.renderY);
 
     ctx.fillStyle = this.bgGradient;
@@ -286,14 +287,12 @@ class CerealClient {
     this.canvas.addEventListener("mousemove", (e) => {
       this.controlDv.setInt16(
         CLIENT_CONTROL_OFFSETS.mx,
-        (e.clientX / this.canvas.width) * this.camera.renderFov -
-          this.camera.renderFov * 0.5,
+        (e.clientX - this.canvas.width * 0.5) / this.canvasZoom,
         true,
       );
       this.controlDv.setInt16(
         CLIENT_CONTROL_OFFSETS.my,
-        (e.clientY / this.canvas.height) * this.camera.renderFov -
-          this.camera.renderFov * 0.5,
+        (e.clientY - this.canvas.height * 0.5) / this.canvasZoom,
         true,
       );
     });

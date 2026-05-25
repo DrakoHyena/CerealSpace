@@ -1,3 +1,6 @@
+- Add narrow phase for views
+- Optimize
+
 - Spend a full session cleaning/organizing
   - weed out slice/sub
 - Document everthing in index.html

@@ -94,9 +94,9 @@ class CerealSpace {
 
     this.freeIndex = 0;
 
-    this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER);
-    this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER);
-    this._queryEntity = new CerealEntity(this, BYTES_PER_HEADER);
+    this._loopEntity = new CerealEntity(this, BYTES_PER_HEADER, true);
+    this._collisionEntity = new CerealEntity(this, BYTES_PER_HEADER, true);
+    this._queryEntity = new CerealEntity(this, BYTES_PER_HEADER, true);
 
     this.avgTickTime = 0;
     this.tick = 0;
@@ -179,13 +179,11 @@ class CerealSpace {
     this.u8.fill(0, this.freeIndex, this.freeIndex + BYTES_PER_BLOCK);
     const id = this._getNewId();
     this.u32[(this.freeIndex >> 2) + CEREAL_U32_HEADER_OFFSETS.id] = id;
-    const clientId = (Math.random() * 0xffff) | 0;
-    this.u8[
-      this.freeIndex + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.clientId
-    ] = clientId & 0xff;
-    this.u8[
-      this.freeIndex + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.clientId + 1
-    ] = (clientId >> 8) & 0xff;
+    this.u32[
+      (this.freeIndex >> 2) +
+        U32_PER_HEADER +
+        CEREAL_U32_ENTITY_OFFSETS.clientId
+    ] = (Math.random() * CONFIG.CerealSpace.maxEntities) & 0xffffff;
     this.idToDataIndex[id] = this.freeIndex + BYTES_PER_HEADER;
     this.freeIndex += BYTES_PER_BLOCK;
     return this.freeIndex - BYTES_PER_ENTITY;
