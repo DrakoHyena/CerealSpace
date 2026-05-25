@@ -183,7 +183,7 @@ class CerealSpace {
       (this.freeIndex >> 2) +
         U32_PER_HEADER +
         CEREAL_U32_ENTITY_OFFSETS.clientId
-    ] = (Math.random() * CONFIG.CerealSpace.maxEntities) & 0xffffff;
+    ] = id - 1;
     this.idToDataIndex[id] = this.freeIndex + BYTES_PER_HEADER;
     this.freeIndex += BYTES_PER_BLOCK;
     return this.freeIndex - BYTES_PER_ENTITY;

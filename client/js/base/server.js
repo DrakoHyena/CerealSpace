@@ -5,6 +5,7 @@ import {
   BYTES_PER_BLOCK,
   BYTES_PER_ENTITY,
   BYTES_PER_HEADER,
+  CEREAL_ENTITY_OFFSETS,
 } from "/js/base/entity.js";
 import {
   CerealConnector,
@@ -55,8 +56,8 @@ class Player {
         let entity = new CerealEntity(this.cs, this.cs.addEntity());
         entity.px = this.controls.mouse.x;
         entity.py = this.controls.mouse.y;
-        entity.vx += 5000 * Math.random() - 2500;
-        entity.vy += 5000 * Math.random() - 2500;
+        entity.vx += 500 * Math.random() - 250;
+        entity.vy += 500 * Math.random() - 250;
         entity.w = 50;
         entity.h = 50;
         entity.vRot = 6 * Math.random() - 3;
@@ -259,13 +260,26 @@ class Server {
             break;
           }
 
+          // Since mortons are sorted in Z's many entities might be outside our real fov
+          // This is meant to act as a quick aprox check
+          const ex =
+            ents[i + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.px] |
+            (ents[i + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.px + 1] << 8);
+          const ey =
+            ents[i + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.py] |
+            (ents[i + BYTES_PER_HEADER + CEREAL_ENTITY_OFFSETS.py + 1] << 8);
+
+          if (ex < x1 || ex > x2 || ey < y1 || ey > y2) {
+            continue;
+          }
+
           this.connector.sendU8.set(
             ents.subarray(i + BYTES_PER_HEADER, i + BYTES_PER_BLOCK),
             SERVER_VIEW_OFFSETS.entities + entityLen,
           );
           entityLen += BYTES_PER_ENTITY;
         }
-        console.log(fov, entityLen / BYTES_PER_ENTITY);
+
         this.connector.sendPacket(
           PACKET_TYPES.VIEW,
           this.connector.sendU8.subarray(

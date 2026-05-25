@@ -1,7 +1,7 @@
 import { CONFIG } from "/js/base/config.js";
 
 const CONNECTOR_VER = 0;
-const SEND_BUF_SIZE = 0xffff;
+const SEND_BUF_SIZE = 0xfffff;
 
 const PACKET_TYPES = {
   SOCKET_CONNECT: 0,

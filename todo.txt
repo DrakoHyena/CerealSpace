@@ -1,5 +1,6 @@
 - Add narrow phase for views
 - Optimize
+- change cache back to u16
 
 - Spend a full session cleaning/organizing
   - weed out slice/sub
