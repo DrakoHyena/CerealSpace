@@ -1,4 +1,6 @@
 - Revisit/Clean up caching
+  - Make risky caches toggable
+  - Better support for risky caches
 
 - Add proper support for large packets
   - 1200 fragementation
