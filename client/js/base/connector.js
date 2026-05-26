@@ -16,7 +16,8 @@ const PACKET_TYPES = {
 
 const CONNECTOR_OFFSETS = {
   packetType: 0, // 2
-  _totalBytes: 2,
+  packetOrder: 2, // 1
+  _totalBytes: 3,
 };
 
 const STATUS = {
@@ -48,6 +49,9 @@ class CerealConnection {
     this.cnt = cnt;
     this.packetCache = {};
     this.sendCacheAmounts = {};
+
+    this.packetSendOrders = {};
+    this.packetReceiveOrders = {};
 
     this.status = STATUS.CONNECTING;
 
@@ -105,10 +109,11 @@ class CerealConnection {
     const newLen = newPacket.byteLength;
     const loopLen = Math.max(oldLen, newLen);
 
-    let dvIndex = 6;
+    let dvIndex = 7;
     const dv = this.diffView;
     dv.setUint16(0, type, true);
-    dv.setUint32(2, newLen, true);
+    dv.setUint8(2, this.packetSendOrders[type]);
+    dv.setUint32(3, newLen, true);
 
     const MAX_GAP = 10;
     let gap = 0;
@@ -164,8 +169,27 @@ class CerealConnection {
     let i = 0;
     const type = dv.getUint16(i, true);
     i += 2;
+    const packetOrder = dv.getUint8(i, true);
+    i += 1;
     const len = dv.getUint32(i, true);
     i += 4;
+
+    const lastOrder = this.packetReceiveOrders[type];
+    if (lastOrder !== undefined) {
+      const diff = (packetOrder - lastOrder + 256) % 256;
+      if (diff > 127) {
+        console.warn(
+          "(Receive Cache) Dropping out of order packet. Late by:",
+          256 - diff,
+        );
+        return [false, type, undefined];
+      } else {
+        this.packetReceiveOrders[type] = packetOrder; // New packet
+      }
+    } else {
+      this.packetReceiveOrders[type] = packetOrder;
+    }
+
     let cachePacket = this.packetCache[type];
     if (cachePacket === undefined) {
       throw new Error(
@@ -187,7 +211,7 @@ class CerealConnection {
       cachePacket.set(diffPacket.subarray(i, i + eLen), index);
       i += eLen;
     }
-    return [type, cachePacket];
+    return [true, type, cachePacket];
   }
 
   onOpen(func) {
@@ -746,7 +770,8 @@ class CerealConnector {
     });
 
     this.onPacket(PACKET_TYPES.CACHE_UPDATE, (cnt, data, dv) => {
-      const [type, newPacket] = cnt.processReceiveCache(data, dv);
+      const [inOrder, type, newPacket] = cnt.processReceiveCache(data, dv);
+      if (inOrder === false) return;
       const newDv = new DataView(
         newPacket.buffer,
         newPacket.byteOffset,
@@ -768,6 +793,8 @@ class CerealConnector {
   }
 
   _processSendData(type, data, cnt) {
+    cnt.packetSendOrders[type] = ((cnt.packetSendOrders[type] || 0) + 1) % 256;
+
     data = new Uint8Array(data);
 
     const diffPacket =
@@ -778,6 +805,11 @@ class CerealConnector {
     if (diffPacket === false) {
       // Actual packet
       this.headerDv.setUint16(CONNECTOR_OFFSETS.packetType, type, true);
+      this.headerDv.setUint8(
+        CONNECTOR_OFFSETS.packetOrder,
+        cnt.packetSendOrders[type],
+        true,
+      );
       this.scratchU8.set(this.headerU8, 0);
       this.scratchU8.set(data, this.headerU8.byteLength);
       return this.scratchU8.subarray(
@@ -785,12 +817,14 @@ class CerealConnector {
         this.headerArr.byteLength + data.byteLength,
       );
     } else {
-      // Update cache packet
+      // Cache update packet
       this.headerDv.setUint16(
         CONNECTOR_OFFSETS.packetType,
         PACKET_TYPES.CACHE_UPDATE,
         true,
       );
+      // Cache updates are general so they dont utilize order
+      this.headerDv.setUint8(CONNECTOR_OFFSETS.packetOrder, 0, true);
       this.scratchU8.set(this.headerU8, 0);
       this.scratchU8.set(diffPacket, this.headerU8.byteLength);
       return this.scratchU8.subarray(
@@ -811,6 +845,26 @@ class CerealConnector {
     const data = new Uint8Array(e.data);
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const type = dv.getUint16(CONNECTOR_OFFSETS.packetType, true);
+    const packetOrder = dv.getUint8(CONNECTOR_OFFSETS.packetOrder, true);
+
+    if (type !== PACKET_TYPES.CACHE_UPDATE) {
+      const lastOrder = cnt.packetReceiveOrders[type];
+      if (lastOrder !== undefined) {
+        const diff = (packetOrder - lastOrder + 256) % 256;
+        if (diff > 127) {
+          console.warn(
+            "(Receive) Dropping out of order packet. Late by:",
+            256 - diff,
+          );
+          return [false, type, undefined];
+        } else {
+          cnt.packetReceiveOrders[type] = packetOrder; // New packet
+        }
+      } else {
+        cnt.packetReceiveOrders[type] = packetOrder;
+      }
+    }
+
     const finalArr = data.subarray(CONNECTOR_OFFSETS._totalBytes);
     const finalDv = new DataView(
       finalArr.buffer,
@@ -818,6 +872,7 @@ class CerealConnector {
       finalArr.byteLength,
     );
 
+    // Update from state packets for caches
     if (CACHE_MODES[type] !== undefined && CACHE_MODES[type] !== this.mode) {
       if (cnt.packetCache[type] === undefined) {
         cnt.packetCache[type] = new Uint8Array(

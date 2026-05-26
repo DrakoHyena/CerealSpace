@@ -1,6 +1,10 @@
-- Add narrow phase for views
+- Revisit/Clean up caching
+
+- Add proper support for large packets
+  - 1200 fragementation
+
 - Optimize
-- change cache back to u16
+  - Look how data is handled for sending
 
 - Spend a full session cleaning/organizing
   - weed out slice/sub

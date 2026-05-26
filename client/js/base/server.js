@@ -32,7 +32,7 @@ class Player {
     this.camera = {
       x: 1,
       y: 1,
-      fov: 5,
+      fov: 500,
     };
     this.controls = {
       mouse: {

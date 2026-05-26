@@ -60,6 +60,28 @@ const CONFIG = {
      * NOTE: This should be based off some of the slowest/least rapid packets
      */
     cacheStateRefreshAmount: 50,
+
+    /*
+     * Packets are dropped if they arrive out of order
+     * This is determined by a count (0-255) that increments with every sent packet of that type
+     * If the value is higher for the receiver than whats in the packet, then the packet dropped
+     * This creates an issue where we dont know when to reset since we might not receive packet 0 of that cycle
+     * Only when the count is between (0-Margin) OR higher than the stored count, will the packet be accepted
+     *
+     * This value is mainly signfigant for poor connections since they are more likely to receive out of order packets
+     * Too low - you might notice rubberbanding
+     * Too high - you might notice long gaps before that packet is able to be received again
+     *
+     * NOTE: This is only applicable to unreliable packets since reliable packets are gareneteed to be ordered
+     */
+    packetOrderMargin: 0,
+  },
+
+  CerealClient: {
+    /*
+     * A multiplier applied to the client side FOV to mitigate pop in and pop out
+     */
+    fovPadding: 0.95,
   },
 };
 

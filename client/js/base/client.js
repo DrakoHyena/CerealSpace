@@ -104,7 +104,11 @@ class CerealClient {
     );
     this.camera.renderFov = Math.max(
       0,
-      lerp(this.camera.startFov, this.camera.fov, this.clampedViewLerp),
+      lerp(
+        this.camera.startFov,
+        this.camera.fov * CONFIG.CerealClient.fovPadding,
+        this.clampedViewLerp,
+      ),
     );
 
     // Entities
