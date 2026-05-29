@@ -1,4 +1,6 @@
 - Revisit/Clean up caching
+  - Make risky caches toggable
+  - Better support for risky caches
 
 - DataChannels dont drop cleanly when too much data
 
