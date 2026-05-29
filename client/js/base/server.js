@@ -11,8 +11,8 @@ import {
   CerealConnector,
   CerealPeer,
   PACKET_TYPES,
-  MODES,
-  STATUS,
+  CONNECTION_MODES,
+  CONNECTION_STATUS,
   SEND_BUF_SIZE,
 } from "/js/base/connector.js";
 import { CLIENT_CONTROL_OFFSETS } from "/js/base/client.js";
@@ -150,7 +150,7 @@ const SERVER_VIEW_OFFSETS = {
 
 class Server {
   constructor() {
-    this.connector = new CerealConnector(MODES.SERVER);
+    this.connector = new CerealConnector(CONNECTION_MODES.SERVER);
     this.cs = new CerealSpace(this.connector);
 
     this.players = new Map();
@@ -196,7 +196,7 @@ class Server {
     });
 
     this.connector.onPacket(PACKET_TYPES.CONTROLS, (cnt, data, dv) => {
-      if (cnt.status !== STATUS.OPEN) return;
+      if (cnt.status !== CONNECTION_STATUS.OPEN) return;
       const player = this.players.get(cnt);
       try {
         player.updateControls(dv);

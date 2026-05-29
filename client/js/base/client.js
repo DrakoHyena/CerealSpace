@@ -2,7 +2,7 @@ import {
   CerealConnector,
   PACKET_TYPES,
   CONNECTOR_VER,
-  MODES,
+  CONNECTION_MODES,
   SEND_BUF_SIZE,
 } from "/js/base/connector.js";
 import { SPACE_INFO_OFFSETS } from "/js/base/space.js";
@@ -82,7 +82,7 @@ class CerealClient {
     this.viewLerp = 1;
     this.clampedViewLerp = 1;
 
-    this.connector = new CerealConnector(MODES.CLIENT);
+    this.connector = new CerealConnector(CONNECTION_MODES.CLIENT);
     this._setUpPackets();
     this._resize();
     this._setUpEvents();

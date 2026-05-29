@@ -20,21 +20,21 @@ const CONNECTOR_OFFSETS = {
   _totalBytes: 3,
 };
 
-const STATUS = {
+const CONNECTION_STATUS = {
   DISCONNECTED: 0,
   CONNECTING: 1,
   CONNECTED: 2,
   OPEN: 3,
 };
 
-const MODES = {
+const CONNECTION_MODES = {
   SERVER: 0,
   CLIENT: 1,
 };
 
 const CACHE_MODES = {
-  SPACE_INFO: MODES.SERVER,
-  VIEW: MODES.SERVER,
+  SPACE_INFO: CONNECTION_MODES.SERVER,
+  VIEW: CONNECTION_MODES.SERVER,
 };
 
 for (let key in PACKET_TYPES) {
@@ -53,7 +53,7 @@ class CerealConnection {
     this.packetSendOrders = {};
     this.packetReceiveOrders = {};
 
-    this.status = STATUS.CONNECTING;
+    this.status = CONNECTION_STATUS.CONNECTING;
 
     this.diff = new Uint8Array(SEND_BUF_SIZE);
     this.diffView = new DataView(this.diff.buffer);
@@ -215,7 +215,7 @@ class CerealConnection {
   }
 
   onOpen(func) {
-    if (this.status === STATUS.OPEN) {
+    if (this.status === CONNECTION_STATUS.OPEN) {
       func();
     } else {
       this._openQueue.push(func);
@@ -238,13 +238,16 @@ class CerealPeer {
     this.targetPeerId = targetPeerId;
 
     this.worker = worker;
-    if (this.mode === MODES.SERVER && this.worker instanceof Worker === false) {
+    if (
+      this.mode === CONNECTION_MODES.SERVER &&
+      this.worker instanceof Worker === false
+    ) {
       throw new Error("Server peers must have a valid Worker");
     }
 
     this.ws;
     this.iceServers = CONFIG.CerealConnector.iceServers;
-    if (this.mode === MODES.SERVER) {
+    if (this.mode === CONNECTION_MODES.SERVER) {
       if (serverSignalingWs === undefined) {
         this.ws = serverSignalingWs = this._makeWsConnection();
       } else {
@@ -253,7 +256,7 @@ class CerealPeer {
       this.ws.addEventListener("newCon", () => {
         this.ws = serverSignalingWs;
       });
-    } else if (this.mode === MODES.CLIENT) {
+    } else if (this.mode === CONNECTION_MODES.CLIENT) {
       this.ws = this._makeWsConnection();
     }
 
@@ -358,7 +361,7 @@ class CerealPeer {
       }
     });
 
-    if (this.mode === MODES.SERVER) {
+    if (this.mode === CONNECTION_MODES.SERVER) {
       this.setUpDataChannel(
         this.peer.createDataChannel("reliable", {
           ordered: true,
@@ -387,7 +390,7 @@ class CerealPeer {
         });
         serverPeers.delete(this.targetPeerId);
       });
-    } else if (this.mode === MODES.CLIENT) {
+    } else if (this.mode === CONNECTION_MODES.CLIENT) {
       this.peer.addEventListener("datachannel", (e) => {
         const channel = e.channel;
 
@@ -416,7 +419,7 @@ class CerealPeer {
     console.log("Connecting to singaling server");
 
     const ws = new WebSocket(
-      `${window.location.protocol === "https:" ? "wss" : "ws"}://${CONFIG.CerealConnector.signalingUrl}/${this.mode === MODES.SERVER ? "host" : `?id=${this.targetPeerId}`}`,
+      `${window.location.protocol === "https:" ? "wss" : "ws"}://${CONFIG.CerealConnector.signalingUrl}/${this.mode === CONNECTION_MODES.SERVER ? "host" : `?id=${this.targetPeerId}`}`,
     );
 
     ws.sendPacket = (dat, targetId) => {
@@ -429,7 +432,7 @@ class CerealPeer {
       ws.send(JSON.stringify({ ...dat, target: targetId }));
     };
 
-    if (this.mode === MODES.SERVER) {
+    if (this.mode === CONNECTION_MODES.SERVER) {
       ws.addEventListener("message", async (e) => {
         const dat = JSON.parse(e.data);
         const sender = dat.from;
@@ -495,7 +498,7 @@ class CerealPeer {
           oldWs.dispatchEvent(new Event("newCon"));
         }, serverReconTime);
       });
-    } else if (this.mode === MODES.CLIENT) {
+    } else if (this.mode === CONNECTION_MODES.CLIENT) {
       ws.addEventListener("message", async (e) => {
         const dat = JSON.parse(e.data);
         if (dat.offer) {
@@ -519,12 +522,12 @@ class CerealPeer {
     ws.addEventListener("open", (e) => {
       console.log("Connected to signaling server");
 
-      if (this.mode === MODES.SERVER) {
+      if (this.mode === CONNECTION_MODES.SERVER) {
         ws.sendPacket({
           type: "SIGNAL_HOST_ICE_SERVERS",
           servers: this.iceServers,
         });
-      } else if (this.mode === MODES.CLIENT) {
+      } else if (this.mode === CONNECTION_MODES.CLIENT) {
         ws.sendPacket({ type: "JOIN" }, this.targetPeerId);
       }
     });
@@ -562,7 +565,7 @@ class CerealPeer {
     if (this.hasClosed === true) return;
     this.hasClosed = true;
     console.log(
-      `CerealPeer ${this.id} (${this.mode === MODES.SERVER ? "SERVER" : this.mode === MODES.CLIENT ? "CLIENT" : "BLANK/UNKNOWN"}) Closing`,
+      `CerealPeer ${this.id} (${this.mode === CONNECTION_MODES.SERVER ? "SERVER" : this.mode === MODES.CLIENT ? "CLIENT" : "BLANK/UNKNOWN"}) Closing`,
     );
     for (let func of this._customCloses) {
       func();
@@ -625,8 +628,8 @@ class CerealConnector {
   sendPacket(type, data, cnt, connectedCheck) {
     if (cnt) {
       if (
-        cnt.status === STATUS.OPEN ||
-        (connectedCheck && cnt.status === STATUS.CONNECTED)
+        cnt.status === CONNECTION_STATUS.OPEN ||
+        (connectedCheck && cnt.status === CONNECTION_STATUS.CONNECTED)
       ) {
         cnt.sendUnreliable(this._processSendData(type, data, cnt));
       } else {
@@ -637,8 +640,8 @@ class CerealConnector {
     } else {
       for (let cnt of this.connections) {
         if (
-          cnt.status === STATUS.OPEN ||
-          (connectedCheck && cnt.status === STATUS.CONNECTED)
+          cnt.status === CONNECTION_STATUS.OPEN ||
+          (connectedCheck && cnt.status === CONNECTION_STATUS.CONNECTED)
         ) {
           cnt.sendReliable(this._processSendData(type, data, cnt));
         } else {
@@ -669,7 +672,7 @@ class CerealConnector {
   }
 
   removeConnection(cnt, reason = "removeConnection called") {
-    if (cnt.status === STATUS.DISCONNECTED) return;
+    if (cnt.status === CONNECTION_STATUS.DISCONNECTED) return;
     const buf = this.scratchBuf.slice(0, addString(reason, this.scratchBuf, 0));
     const dv = new DataView(buf);
     let funcArr = this.onPacketFuncs.get(PACKET_TYPES.DISCONNECT);
@@ -729,11 +732,11 @@ class CerealConnector {
 
   _setUpDefaultHandlers() {
     this.onPacket(PACKET_TYPES.SOCKET_CONNECT, (cnt, data, dv) => {
-      cnt.status = STATUS.CONNECTED;
+      cnt.status = CONNECTION_STATUS.CONNECTED;
     });
 
     this.onPacket(PACKET_TYPES.DISCONNECT, (cnt, data, dv) => {
-      cnt.status = STATUS.DISCONNECTED;
+      cnt.status = CONNECTION_STATUS.DISCONNECTED;
       this.connections.delete(cnt);
       console.log(
         this.mode,
@@ -743,7 +746,7 @@ class CerealConnector {
     });
 
     this.onPacket(PACKET_TYPES.CONNECT, (cnt, data, dv) => {
-      if (this.mode === MODES.CLIENT) return; // Client should never receive a connect req
+      if (this.mode === CONNECTION_MODES.CLIENT) return; // Client should never receive a connect req
       const version = dv.getUint16(0, true);
       if (version !== CONNECTOR_VER) {
         console.warn("Connection has mismatched connecter versions");
@@ -766,7 +769,7 @@ class CerealConnector {
     });
 
     this.onPacket(PACKET_TYPES.OPEN, (cnt, data, dv) => {
-      cnt.status = STATUS.OPEN;
+      cnt.status = CONNECTION_STATUS.OPEN;
     });
 
     this.onPacket(PACKET_TYPES.CACHE_UPDATE, (cnt, data, dv) => {
@@ -836,7 +839,10 @@ class CerealConnector {
 
   _processReceiveData(cnt, e) {
     // WebRTC DataChannels can receive messages before they are open
-    if (cnt.status !== STATUS.OPEN && cnt.status !== STATUS.CONNECTED) {
+    if (
+      cnt.status !== CONNECTION_STATUS.OPEN &&
+      cnt.status !== CONNECTION_STATUS.CONNECTED
+    ) {
       cnt.onOpen(() => {
         this._processReceiveData(cnt, e);
       });
@@ -939,7 +945,7 @@ export {
   CerealPeer,
   PACKET_TYPES,
   CONNECTOR_VER,
-  MODES,
+  CONNECTION_MODES,
   SEND_BUF_SIZE,
-  STATUS,
+  CONNECTION_STATUS,
 };

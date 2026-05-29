@@ -1,7 +1,7 @@
 import { CONFIG } from "/js/base/config.js";
 import { CerealClient } from "/js/base/client.js";
 import { CerealPeer } from "/js/base/connector.js";
-import { MODES } from "/js/base/connector.js";
+import { CONNECTION_MODES } from "/js/base/connector.js";
 
 const menu = document.getElementById("container");
 
@@ -68,7 +68,11 @@ async function hostServer() {
   // Make a WebRTCPeer-less Cereal Peer to init our signaling connection/posting
   // This is fine since all server peers share one ws
   // Looks jank, however this is simply baked into it :)
-  const cerealPeer = new CerealPeer(MODES.SERVER, undefined, serverWorker);
+  const cerealPeer = new CerealPeer(
+    CONNECTION_MODES.SERVER,
+    undefined,
+    serverWorker,
+  );
   cerealPeer.iceServers = turnUrlValue.startsWith("turn")
     ? [
         ...CONFIG.CerealConnector.iceServers,
@@ -89,7 +93,7 @@ async function hostServer() {
 }
 
 async function joinServer(serverId, ICE_SERVERS) {
-  const cerealPeer = new CerealPeer(MODES.CLIENT, serverId);
+  const cerealPeer = new CerealPeer(CONNECTION_MODES.CLIENT, serverId);
   cerealPeer.makeClientPeer(ICE_SERVERS);
   client.connector.addConnection(cerealPeer);
 }

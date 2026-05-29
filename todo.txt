@@ -1,5 +1,7 @@
 - Revisit/Clean up caching
 
+- DataChannels dont drop cleanly when too much data
+
 - Add proper support for large packets
   - 1200 fragementation
 
